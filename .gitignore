@@ -1,0 +1,19 @@
+# Ignore build artifacts
+build/
+dist/
+*.egg-info/
+test/*/
+
+notebooks/
+
+# Ignore log files
+# *.log
+
+
+# Ignore system files
+.DS_Store
+*.pyc
+__pycache__/
+
+.env 
+
