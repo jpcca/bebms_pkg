@@ -3,6 +3,7 @@ import numpy as np
 import json 
 import re 
 import os 
+import yaml
 
 def extract_components(filename):
     pattern = r'^j(\d+)_r([\d.]+)_E(.*?)_m(\d+)$'
@@ -10,18 +11,6 @@ def extract_components(filename):
     if match:
         return match.groups()  # returns tuple (J, R, E, M)
     return None
-
-experiment_names = [
-    "sn_kjOrdinalDM_xnjNormal",     # Experiment 1: Ordinal kj with Dirichlet-Multinomial, Normal Xnj
-    "sn_kjOrdinalDM_xnjNonNormal",  # Experiment 2: Ordinal kj with Dirichlet-Multinomial, Non-Normal Xnj
-    # "sn_kjOrdinalUniform_xnjNormal", # Experiment 3: Ordinal kj with Uniform distribution, Normal Xnj
-    # "sn_kjOrdinalUniform_xnjNonNormal", # Experiment 4: Ordinal kj with Uniform distribution, Non-Normal Xnj
-    # "sn_kjContinuousUniform",       # Experiment 5: Continuous kj with Uniform distribution
-    # "sn_kjContinuousBeta",          # Experiment 6: Continuous kj with Beta distribution
-    # "xiNearNormal_kjContinuousUniform", # Experiment 7: Near-normal Xi with Continuous Uniform kj
-    # "xiNearNormal_kjContinuousBeta", # Experiment 8: Near-normal Xi with Continuous Beta kj
-    # "xiNearNormalWithNoise_kjContinuousBeta", # Experiment 9: Same as Exp 8 but with noises to xi
-]
 
 def convert_np_types(obj):
     """Convert numpy types in a nested dictionary to Python standard types."""
@@ -40,11 +29,27 @@ def convert_np_types(obj):
 
 
 if __name__ == '__main__':
-    rng = np.random.default_rng(53)
+    with open('config.yaml', 'r') as f:
+        config = yaml.safe_load(f)
 
-    OUTPUT_DIR = 'my_data'
-    # Get path to default parameters
+    rng = np.random.default_rng(53)
+    cwd = os.path.dirname(__file__)
+
+    OUTPUT_DIR = os.path.join(cwd, "my_data")
+    # # Get path to default parameters
     params_file = get_params_path()
+
+    # USE ADNI PARAMS OBTAINED FROM UCL GMM, and ordering obtained from PYSUSTAIN
+    # params_file = f'{cwd}/ADNI_PYSUSTAIN.json'
+    # SUBTYPE_RANKINGS = np.array([[10,  0,  2,  1,  3,  7,  6,  9, 11,  8,  5,  4],
+    #    [10,  3,  5,  4,  0,  2,  1,  7,  9, 11,  8,  6]])
+
+    # USE SAEBM PARAMS AND PYSUBEBM ORDERINGS
+    # params_file = f'{cwd}/ADNI_SAEBM.json'
+    # SUBTYPE_RANKINGS = np.array([
+    #         [5, 6, 4, 3, 2, 1, 11, 7, 10, 0, 9, 8],
+    #         [6, 4, 5, 8, 11, 10, 3, 0, 1, 9, 2, 7]
+    #     ])
 
     with open(params_file) as f:
         params = json.load(f)
@@ -54,19 +59,25 @@ if __name__ == '__main__':
     MS = range(1, 20)
 
     all_exp_dicts = []
-    for exp_name in experiment_names:
+    for exp_name in config['EXPERIMENT_NAMES']:
         random_state = rng.integers(0, 2**32 - 1)
         exp_dict = generate(
             experiment_name = exp_name,
-            params_file=params_file,
-            js = [200],
-            rs = [0.1],
-            num_of_datasets_per_combination=3,
+            # params_file=params_file,
+            params=params,
+            js = config['JS'],
+            rs = config['RS'],
+            num_of_datasets_per_combination=config['N_VARIANTS'],
             output_dir=OUTPUT_DIR,
             seed=random_state,
             keep_all_cols = False,
-            fixed_biomarker_order = True, # important
-            save2file=False,
+            temperature_lo=config['TEMPERATURE_LO'],
+            temperature_hi=config['TEMPERATURE_HI'],
+            n_sub_lo=config['N_SUB_LO'],
+            n_sub_hi=config['N_SUB_HI'],
+            subtype_dirichlet_priors=config['GEN_DIRICHLET_PRIORS'],
+            subtype_length_lo=config['SUBTYPE_LENGTH_LO'],
+            # provided_subtype_orders=SUBTYPE_RANKINGS
         )
         all_exp_dicts.append(exp_dict)
 
@@ -76,7 +87,7 @@ if __name__ == '__main__':
     combined = convert_np_types(combined)
 
     # Dump the JSON
-    with open(f"true_order_and_stages.json", "w") as f:
+    with open(f"{cwd}/true_order_and_stages.json", "w") as f:
         json.dump(combined, f, indent=2)
 
     

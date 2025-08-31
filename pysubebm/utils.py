@@ -34,8 +34,47 @@ import re
 import os 
 import logging 
 
-def dirichlet_multinomial(total_participant:int, n_subtypes:int, rng:np.random.Generator) -> np.ndarray:
-    alpha = np.ones(n_subtypes) * 5
+eps = 1e-12
+
+@njit(fastmath=False, parallel=False)
+def normalized_kendalls_tau_distance(r1:np.ndarray, r2:np.ndarray) -> float:
+    """ 
+    Args:
+        r1, r2: array of indices of the same set of items. 
+    """
+    n = len(r1)
+    concordant = 0
+    discordant = 0 
+    for p in range(n-1):
+        for q in range(p+1, n):
+            concordant += ((r1[p] - r1[q]) * (r2[p] - r2[q]) > 0)
+            discordant += ((r1[p] - r1[q]) * (r2[p] - r2[q]) < 0)
+    # discrodant/(concordant + discrodant) is the normalized kendall's tau distance
+    total = concordant + discordant
+    return discordant / total if total > 0 else 0.0
+
+def convert_np_types(obj):
+    """Convert numpy types in a nested dictionary to Python standard types."""
+    if isinstance(obj, dict):
+        return {k: convert_np_types(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_np_types(item) for item in obj]
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return convert_np_types(obj.tolist())
+    else:
+        return obj
+
+def dirichlet_multinomial(
+        subtype_assignment_prior:int,
+        total_participant:int, 
+        n_subtypes:int, 
+        rng:np.random.Generator
+) -> np.ndarray:
+    alpha = np.ones(n_subtypes) * subtype_assignment_prior
 
     if n_subtypes > total_participant:
         print(f"Error: Cannot assign at least one item to {n_subtypes} subtypes with only {total_participant} participants.")
@@ -195,8 +234,19 @@ def get_initial_theta_phi_estimates(
     N = len(data_matrix[0])
     # Each row is a bm; four cols: theta_mean, theta_std, phi_mean, phi_std
     estimates = np.zeros((N, 4))
+
+    # --- THE FIX: Validate that both groups have members ---
+    if len(non_diseased_ids) == 0:
+        raise ValueError("The 'non_diseased_ids' group is empty. Cannot initialize theta/phi.")
+    if len(diseased_ids) == 0:
+        raise ValueError("The 'diseased_ids' group is empty. Cannot initialize theta/phi.")
+    # --- End of Fix ---
+
     for bm in range(N):
         bm_measurements = data_matrix[:, bm]
+        # Add a check here for NaNs just in case, it's good practice
+        if np.any(np.isnan(bm_measurements)):
+             raise ValueError(f"NaN value detected in biomarker {bm} before calling KMeans.")
         theta_measurements, phi_measurements, _  = get_two_clusters_with_kmeans(
             bm_measurements = bm_measurements, 
             diseased_ids = diseased_ids, 
@@ -284,6 +334,7 @@ def estimate_params_exact(
     v0: float,
     data: np.ndarray,
     weights:np.ndarray=np.array([]), 
+    epsilon: float = 1e-6 # Add a small constant for stability
 ) -> Tuple[float, float]:
     """
     Estimate posterior mean and standard deviation using conjugate priors for a Normal-Inverse Gamma model.
@@ -299,7 +350,7 @@ def estimate_params_exact(
     Returns:
         Tuple[float, float]: Posterior mean (μ) and standard deviation (σ).
     """
-    if len(weights) == 0:
+    if weights is None:
         weights = np.ones(len(data))
     # Data summary
     sum_of_weights = np.sum(weights)
@@ -314,13 +365,20 @@ def estimate_params_exact(
     updated_v0 = v0 + sum_of_weights
     updated_s0_sq = (1 / updated_v0) * (sum_weighted_squared_diff + v0 * s0_sq +
                                         (n0 * sum_of_weights / updated_n0) * (sample_mean - m0)**2)
+    
+    # Ensure the variance is never exactly zero
+    updated_s0_sq = max(updated_s0_sq, epsilon)
+
     updated_alpha = updated_v0/2
     updated_beta = updated_v0*updated_s0_sq/2
 
     # Posterior estimates
     mu_posterior_mean = updated_m0
     # Use the statistically correct mean of the Inverse Gamma distribution
-    sigma_squared_posterior_mean = updated_beta / (updated_alpha - 1) if updated_alpha > 1 else updated_beta / updated_alpha
+    # sigma_squared_posterior_mean = updated_beta / (updated_alpha - 1) if updated_alpha > 1 else updated_beta / updated_alpha
+    sigma_squared_posterior_mean = updated_beta / updated_alpha
+    # Ensure the final estimated variance is also not zero
+    sigma_squared_posterior_mean = max(sigma_squared_posterior_mean, epsilon)
 
     mu_estimation = mu_posterior_mean
     std_estimation = np.sqrt(sigma_squared_posterior_mean)
@@ -328,144 +386,118 @@ def estimate_params_exact(
     return mu_estimation, std_estimation
 
 @njit
-def obtain_affected_and_non_clusters(
-    bm_measurements:np.ndarray,
-    n_participants:int,
-    non_diseased_ids:np.ndarray,
-    stage_post_s: np.ndarray, # (n_participants, 1)
-    subtype_post_s:np.ndarray, # (n_participants, 1)
-    disease_stages: np.ndarray,
-    curr_order: int,
-    random_state:int
-) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Obtain both the affected and non-affected clusters for a single biomarker.
-
-    Args:
-        - bm_measurements: all participants' measurements of a specific biomarker 
-
-    Returns:
-        Tuple[float, float, float, float]: Mean and standard deviation for affected (theta) and non-affected (phi) clusters.
-    """
-    np.random.seed(random_state)
-    affected_cluster_array = np.full(n_participants, np.nan, dtype=np.float64)
-    non_affected_cluster_array = np.full(n_participants, np.nan, dtype=np.float64)
-
-    for p in range(n_participants):
-        # measurement of p, bm
-        m = bm_measurements[p]
-        if p in non_diseased_ids:
-            non_affected_cluster_array[p] = m
-        else:
-            if curr_order == 1:
-                affected_cluster_array[p] = m
-            else:
-                affected_prob = np.sum(
-                    stage_post_s[p][disease_stages >= curr_order])
-                non_affected_prob = np.sum(
-                    stage_post_s[p][disease_stages < curr_order])
-                if affected_prob > non_affected_prob:
-                    affected_cluster_array[p] = m
-                elif affected_prob < non_affected_prob:
-                    non_affected_cluster_array[p] = m
-                else:
-                    if np.random.random() > 0.5:
-                        affected_cluster_array[p] = m
-                    else:
-                        non_affected_cluster_array[p] = m
-    non_affected_pos = np.isnan(affected_cluster_array)
-    affected_pos = np.isnan(non_affected_cluster_array)
-
-    theta_measurments = affected_cluster_array[affected_pos]
-    theta_weights = subtype_post_s[affected_pos]
-    phi_measurements = non_affected_cluster_array[non_affected_pos]
-    phi_weights = subtype_post_s[non_affected_pos]
-                    
-    return theta_measurments, theta_weights, phi_measurements, phi_weights
-
-@njit
 def update_theta_phi_estimates(
-    n_biomarkers:int,
-    n_participants:int,
-    non_diseased_ids:np.ndarray,
-    data_matrix:np.ndarray,
-    new_order:np.ndarray, # (n_subtypes, n_disease_stages)
-    theta_phi_current: np.ndarray,  # (n_subtypes, N, 4)
-    stage_likelihoods_posteriors: np.ndarray, # (n_participants, n_subtypes, n_disease_stages)
-    subtype_post:np.ndarray, # (n_participants, n_subtypes)
+    n_biomarkers: int,
+    n_participants: int,
+    non_diseased_ids: np.ndarray,
+    data_matrix: np.ndarray,
+    new_order: np.ndarray,
+    theta_phi_current: np.ndarray,  # Shape is now (n_biomarkers, 4)
+    stage_likelihoods_posteriors: np.ndarray,
+    subtype_post: np.ndarray,
     disease_stages: np.ndarray,
-    prior_n: float,    # Weak prior (not data-dependent)
-    prior_v: float,     # Weak prior (not data-dependent)
-    random_state:int,
+    prior_n: float,
+    prior_v: float,
 ) -> np.ndarray:
-    """Update theta and phi params for all biomarkers.
     """
-    theta_phi = theta_phi_current.copy()
-    # for all subtypes, recalculate their theta phi
-    for subtype_idx in range(theta_phi.shape[0]):
-        updated_params = np.zeros((n_biomarkers, 4))
-        for bm_idx in range(n_biomarkers):
-            curr_order = new_order[subtype_idx, bm_idx]
-            bm_measurements = data_matrix[:,bm_idx]
-            theta_phi_current_biomarker = theta_phi_current[subtype_idx, bm_idx, :]
-            
-            theta_measurments, theta_weights, phi_measurements, phi_weights = obtain_affected_and_non_clusters(
-                bm_measurements,
-                n_participants,
-                non_diseased_ids,
-                stage_likelihoods_posteriors[:, subtype_idx, :],
-                subtype_post[:, subtype_idx],
-                disease_stages,
-                curr_order,
-                random_state
-            )
-            updated_params[bm_idx, :] = compute_theta_phi_biomarker_conjugate_priors(
-                theta_measurments, theta_weights, phi_measurements, phi_weights, 
-                theta_phi_current_biomarker, prior_n, prior_v)
-        theta_phi[subtype_idx, :, :] = updated_params
-                
-    return theta_phi
+    Update a SHARED set of theta and phi params for all biomarkers.
+    """
+    n_subtypes = new_order.shape[0]
+    updated_params = np.zeros((n_biomarkers, 4))
 
+    # Loop over each biomarker to update its shared theta/phi
+    for bm_idx in range(n_biomarkers):
+        bm_measurements = data_matrix[:, bm_idx]
+
+        # --- Calculate Aggregated Weights ---
+        # These are the total probabilities of a participant's measurement for this biomarker
+        # belonging to the 'theta' (affected) or 'phi' (unaffected) cluster,
+        # summed across all possible subtypes.
+        theta_weights = np.zeros(n_participants, dtype=np.float64)
+        phi_weights = np.zeros(n_participants, dtype=np.float64)
+
+        # Loop over all subtypes to accumulate the probabilities
+        for s in range(n_subtypes):
+            # Find the position of the current biomarker in this subtype's sequence
+            bm_position_in_sequence = new_order[s, bm_idx]
+
+            # Calculate the joint posterior P(s, k | p) = P(k | p, s) * P(s | p)
+            # This tells us the probability of a participant being in a specific stage of a specific subtype
+            joint_posterior_sk = stage_likelihoods_posteriors[:, s, :] * subtype_post[:, s, np.newaxis]
+
+            # Find which stages correspond to this biomarker being 'affected' for this subtype
+            affected_stages_mask = disease_stages >= bm_position_in_sequence
+            unaffected_stages_mask = ~affected_stages_mask
+
+            # Add this subtype's contribution to the total 'affected' and 'unaffected' probabilities
+            theta_weights += np.sum(joint_posterior_sk[:, affected_stages_mask], axis=1)
+            phi_weights += np.sum(joint_posterior_sk[:, unaffected_stages_mask], axis=1)
+
+        # Non-diseased participants are always in the 'phi' (unaffected) cluster with 100% certainty
+        phi_weights[non_diseased_ids] = 1.0
+        theta_weights[non_diseased_ids] = 0.0
+
+        # --- Use Weighted Data for Estimation ---
+        # We now use the FULL set of measurements for both theta and phi,
+        # but with the aggregated soft-assignment weights we just calculated.
+        theta_phi_current_biomarker = theta_phi_current[bm_idx, :]
+        updated_params[bm_idx, :] = compute_theta_phi_biomarker_conjugate_priors(
+            bm_measurements, theta_weights,  # theta_measurements and its weights
+            bm_measurements, phi_weights,    # phi_measurements and its weights
+            theta_phi_current_biomarker, prior_n, prior_v
+        )
+
+    return updated_params
 
 @njit
 def compute_likelihood_and_posteriors(
     data_matrix:np.ndarray,
-    non_diseased_ids: np.ndarray,
+    non_diseased_mask: np.ndarray,
     disease_stages: np.ndarray,
     new_order:np.ndarray, # (n_subtypes, n_disease_stages)
-    current_theta_phi: np.ndarray, # current_theta_phi (n_subtypes, N, 4)
+    subtypes_to_update:np.ndarray, # indices of subtypes that have been shuffled order
+    log_likes_subtypes: np.ndarray, # log likelihood of each participant's data under different subtypes
+    stage_post:np.ndarray, # need this because only stage post for shuffled subtypes will be updated
+    current_theta_phi: np.ndarray, # current_theta_phi (N, 4)
     current_stage_prior: np.ndarray, # current_stage_prior (n_subtypes, n_disease_stages)
     current_subtype_prior:np.ndarray, # (n_subtypes, 1)
-) -> Tuple[float, np.ndarray, np.ndarray]: # subtype_ln_likes, stage_post, subtype_post_ln_likes, subtype_post
+) -> Tuple[float, np.ndarray, np.ndarray, np.ndarray]: # subtype_ln_likes, stage_post, subtype_post_ln_likes, subtype_post
     """Calculate the total log likelihood across all participants
         and obtain stage_likelihoods_posteriors
     """
     n_participants, _ = data_matrix.shape 
     n_subtypes = current_subtype_prior.shape[0]
-    n_disease_stages = disease_stages.shape[0]
 
     # Store intermediate values
-    stage_post = np.zeros((n_participants, n_subtypes, n_disease_stages))
+    # stage_post = np.zeros((n_participants, n_subtypes, n_disease_stages))
     subtype_post = np.zeros((n_participants, n_subtypes))
-    # log likelihood of each participant's data under different subtypes
-    log_likes_subtypes = np.zeros((n_participants, n_subtypes))
-
+    # log_likes_subtypes = np.zeros((n_participants, n_subtypes))
+    
     for p in range(n_participants):
-        for s in range(n_subtypes):
+        # note that s itself here is also an index
+        for s_idx, s in enumerate(subtypes_to_update):
+        # for s in range(n_subtypes):
             measurements = data_matrix[p]
-            if p in non_diseased_ids:
-                ln_likelihood = compute_ln_likelihood(
-                    measurements, new_order[s, :], 
-                    k_j=0, theta_phi=current_theta_phi[s, :, :])
+            if non_diseased_mask[p]:
+                if s_idx == 0:
+                    # for healthy participant, no matter what the new_order[s, :] is, because k_j = -1
+                    # all biomarkers are treated as not affected. 
+                    # So we only need to calcuate once. 
+
+                    # this also means if we use separate rather than shared theta/phi, then there is a problem? because 
+                    # which theta/phi should we use for healthy participants?
+                    ln_likelihood = compute_ln_likelihood(
+                        measurements, np.zeros(len(measurements), dtype=np.float64), 
+                        k_j=-1, theta_phi=current_theta_phi)
             else: # Diseased participant (sum over possible stages)
                 ln_stage_likelihoods = np.zeros(len(disease_stages))
-                for idx, k_j in enumerate(disease_stages):
-                    # Use `idx` to access the prior array, not `k_j`.
+                for kj_idx, k_j in enumerate(disease_stages):
+                    # Use `kj_idx` to access the prior array, not `k_j`.
                     # `k_j` starts from 1, but array indices start from 0.
-                    ln_stage_likelihoods[idx] = compute_ln_likelihood(
+                    ln_stage_likelihoods[kj_idx] = compute_ln_likelihood(
                         measurements, new_order[s, :], k_j=k_j, 
-                        theta_phi=current_theta_phi[s, :, :]
-                    ) + np.log(current_stage_prior[s, idx])
+                        theta_phi=current_theta_phi
+                    ) + np.log(current_stage_prior[s, kj_idx] + eps)
 
                 # Use log-sum-exp to get the total log-likelihood for this participant given this subtype
                 max_ll = np.max(ln_stage_likelihoods)
@@ -484,11 +516,9 @@ def compute_likelihood_and_posteriors(
 
     data_likelihood = \prod_j=0^J L(j) 
 
-    data_log_likelihood = log( \prod_j=0^J L(j)) = \sum_j=0^J log(L(j))
-
-    because L(j) = \sum_s=0^S L(j|s) * prior_s, we have
-
-    data_log_likelihood = \sum_j=0^J log(\sum_s=0^S L(j|s) * prior_s)
+    data_log_likelihood = log( \prod_j=0^J L(j)) 
+                        = \sum_j=0^J log(L(j))
+                        = \sum_j=0^J log(\sum_s=0^S L(j|s) * prior_s)
 
     We don't have L(j|s), but only log(L(j|s)), so, we need to express the inner term using logs:
 
@@ -499,22 +529,34 @@ def compute_likelihood_and_posteriors(
 
     '''
     # First, get the log of the priors.
-    log_subtype_priors = np.log(current_subtype_prior)
+    log_subtype_priors = np.log(np.maximum(current_subtype_prior, 1e-12))
 
     # data log liklihood
     data_ln_likelihood = 0.0
 
     # update subtype post after log_likes_subtypes is done
     for p in range(n_participants):
-        # each participant, across subtypes
-        # log(L(j|s)) + log(prior_s)
-        log_unnorm_post = log_likes_subtypes[p, :] + log_subtype_priors
-        max_log = np.max(log_unnorm_post)
-        exp_shifted = np.exp(log_unnorm_post - max_log)
+        # healthy participants are not in any subtypes 
+        if non_diseased_mask[p]:
+            # For healthy participants, the likelihood is calculated under the "no-event" model (k_j=0).
+            # which means S does not influence the likelihood, as long as theta/phi does not change. 
+            # we add only log_likes_subtypes[p, 0]  but not the sum because even for diseased patients,
+            # we are adding the weighted mean. So here for healthy patients, the first is also the mean
+            # because for each s, the ln like is the same. 
+            data_ln_likelihood += log_likes_subtypes[p, 0] 
+        else:
+            # each participant, across subtypes
+            # log(L(j|s)) + log(prior_s)
+            log_unnorm_post = log_likes_subtypes[p, :] + log_subtype_priors
+            max_log = np.max(log_unnorm_post)
+            exp_shifted = np.exp(log_unnorm_post - max_log)
+            log_marginal_p = max_log + np.log(np.sum(exp_shifted))
+            # sums the individual log-likelihoods
+            data_ln_likelihood += log_marginal_p
+            # calculates the posterior
+            subtype_post[p, :] = exp_shifted / np.sum(exp_shifted)
 
-        subtype_post[p, :] = exp_shifted / np.sum(exp_shifted)
-
-    return data_ln_likelihood, stage_post, subtype_post
+    return data_ln_likelihood, stage_post, subtype_post, log_likes_subtypes
 
 @ njit
 def _compute_ln_likelihood_core(measurements, mus, stds):
@@ -569,6 +611,11 @@ def compute_ln_likelihood(
 
     return _compute_ln_likelihood_core(p_measurements, mus, stds)
 
+def shuffle_adjacent(order:np.ndarray, rng:np.random.Generator):
+    i = rng.integers(0, len(order) - 1)
+    j = i + 1
+    order[i], order[j] = order[j], order[i]
+
 def shuffle_order(arr: np.ndarray, n_shuffle: int, rng:np.random.Generator) -> None:
     """
     Randomly shuffle a specified number of elements in an array.
@@ -578,7 +625,7 @@ def shuffle_order(arr: np.ndarray, n_shuffle: int, rng:np.random.Generator) -> N
     n_shuffle (int): The number of elements to shuffle within the array.
     """
     if n_shuffle == 0:
-        return
+        return        
     
     # Select indices and extract elements
     indices = rng.choice(len(arr), size=n_shuffle, replace=False)
@@ -654,34 +701,3 @@ def cleanup_old_files(output_dir: str, fname: str):
                 logging.error(f"Error removing old file: {file_path}: {e}")
         else:
             logging.warning(f"File does not exist, skipping removal: {file_path}")
-
-@njit
-def compute_unbiased_stage_likelihoods(
-    n_participants:int,
-    data_matrix:np.ndarray,
-    new_order:np.ndarray,
-    theta_phi: np.ndarray,
-    updated_pi: np.ndarray,
-    n_stages = int,
-) -> np.ndarray:
-    """Calculate the total log likelihood across all participants
-        and obtain stage_likelihoods_posteriors
-    """
-    stage_likelihoods_posteriors = np.zeros((n_participants, n_stages))
-
-    for participant in range(n_participants):
-        measurements = data_matrix[participant]
-        # ln_stage_likelihoods: N length vector
-        ln_stage_likelihoods = np.ones(n_stages)
-        for k_j in range(n_stages):
-            ln_stage_likelihoods[k_j] = compute_ln_likelihood(
-                measurements, new_order, k_j=k_j, theta_phi=theta_phi
-            ) + np.log(updated_pi[k_j])
-        # Use log-sum-exp trick for numerical stability
-        max_ln_likelihood = np.max(ln_stage_likelihoods)
-        stage_likelihoods = np.exp(
-            ln_stage_likelihoods - max_ln_likelihood)
-        likelihood_sum = np.sum(stage_likelihoods)
-        stage_likelihoods_posteriors[participant] = stage_likelihoods/likelihood_sum
-
-    return stage_likelihoods_posteriors

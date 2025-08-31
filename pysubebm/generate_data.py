@@ -337,6 +337,7 @@ def generate_data(
     # Otherwise, randomize the order
     else:
         shuffled_biomarkers = rng.permutation(np.array(list(params.keys())))
+    
     max_stage = len(shuffled_biomarkers)
     event_times = np.arange(1, max_stage+1)
 
@@ -505,7 +506,14 @@ def generate(
     keep_all_cols: bool = False ,
     fixed_biomarker_order: bool = True,
     noise_std_parameter: float = 0.05,
+    temperature_lo:float=0.1, # to control mallows distribution dispersion
+    temperature_hi:float=1.0,
+    n_sub_lo:int=2,
+    n_sub_hi:int=5,
     save2file: bool=False,
+    provided_subtype_orders:np.ndarray=None,
+    subtype_dirichlet_priors: List[int]=None, # the dirichilet prior
+    subtype_length_lo:int=5,
 ) -> Dict[str, Dict[str, int]]:
     """
     Generate multiple datasets for different experimental configurations.
@@ -544,6 +552,10 @@ def generate(
     # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
 
+    def get_total(r: float, n_diseased: int) -> int:
+        """Get total participants for this subtype given healthy ratio and diseased count"""
+        return round(n_diseased / (1 - r))
+
     # Load biomarker parameters from file
     if params is not None:
         params = params
@@ -566,7 +578,7 @@ def generate(
                 sub_seed = rng.integers(0, 1_000_000)
                 sub_rng = np.random.default_rng(sub_seed)
                 # Construct filename with parameters encoded
-                if num_of_datasets_per_combination >= 2:
+                if num_of_datasets_per_combination >= 2: 
                     filename = f"j{participant_count}_r{healthy_ratio}_E{experiment_name}_m{variant}"
                 else:
                     filename = f"j{participant_count}_r{healthy_ratio}_E{experiment_name}"
@@ -578,36 +590,55 @@ def generate(
                 if len(params) != len(dirichlet_alpha['multinomial']):
                     dirichlet_alpha['multinomial'] = dirichlet_near_normal(n_biomarkers=len(params))
 
-                N_SUB = sub_rng.integers(3, 7)
-                TEMPERATURE = sub_rng.uniform(0.1, 2)
-                """
-                This is super impotant. It means that the 'True_ORDERINGS' are the positions 
-                for fixed/sorted biomarker_names. That's exactly what `mh.py` have in its results.
-                """
-                # Central Ranking
-                # biomarker_names stay fixed; randomize the position indices
-                s0 = sub_rng.permutation(np.arange(0, len(params)))
-                # N_sub * len(params) matrix
-                len_unique_sampled = 0
-                while len_unique_sampled != N_SUB:
-                    mk_sampled_rankings = mk.sample(
-                        m=N_SUB, 
-                        n = len(params), 
-                        theta=TEMPERATURE, 
-                        s0=s0, 
-                        rng=sub_rng
-                    )
-                    # check unique 
-                    len_unique_sampled = len(set(tuple(arr) for arr in mk_sampled_rankings))
-                SUBTYPE_RANKINGS = mk_sampled_rankings
+                # subtype is only for diseased folks. 
+                n_healthy = participant_count * healthy_ratio 
+                n_diseased = participant_count - n_healthy
+                
+                if provided_subtype_orders is None:
+                    N_SUB = sub_rng.integers(n_sub_lo, n_sub_hi+1)
+                    # # divide the total healthy equally to N_SUB groups
+                    # HEALTHY_ARR = utils.split_integer(total=n_healthy, n=N_SUB)
+                    TEMPERATURE = sub_rng.uniform(temperature_lo, temperature_hi)
+
+                    """
+                    This is super impotant. It means that the 'True_ORDERINGS' are the positions 
+                    for fixed/sorted biomarker_names. That's exactly what `mh.py` have in its results.
+                    """
+                    # Central Ranking
+                    # biomarker_names stay fixed; randomize the position indices
+                    s0 = sub_rng.permutation(np.arange(0, len(params)))
+                    # N_sub * len(params) matrix
+                    len_unique_sampled = 0
+                    while len_unique_sampled != N_SUB:
+                        mk_sampled_rankings = mk.sample(
+                            m=N_SUB, 
+                            n = len(params), 
+                            theta=TEMPERATURE, 
+                            s0=s0, 
+                            rng=sub_rng
+                        )
+                        # check unique 
+                        len_unique_sampled = len(set(tuple(arr) for arr in mk_sampled_rankings))
+                    SUBTYPE_RANKINGS = mk_sampled_rankings
+                else:
+                    SUBTYPE_RANKINGS = provided_subtype_orders
+                    N_SUB = len(SUBTYPE_RANKINGS)
+                    TEMPERATURE = np.nan
                 # kendall's W
                 W = utils.kendalls_w(SUBTYPE_RANKINGS)
-                # N_SUB length vector
-                SUBTYPE_LENGTHS = utils.dirichlet_multinomial(
-                    total_participant=participant_count,
-                    n_subtypes=N_SUB,
-                    rng=sub_rng
-                )
+                # N_SUB length vector, i.e., the participant in each subtype ordering
+                SUBTYPE_LENGTHS = np.zeros(N_SUB, dtype=np.int64)
+                # make sure each subtype has at least 5 (diseased) participants
+                while not np.all(SUBTYPE_LENGTHS >= subtype_length_lo):
+                    # decide the dirichlet prior, choose one from [0.1, 1, 5, 20]
+                    subtype_dirichlet_alpha = rng.choice(subtype_dirichlet_priors)
+                    SUBTYPE_LENGTHS = utils.dirichlet_multinomial(
+                        subtype_assignment_prior= subtype_dirichlet_alpha,
+                        total_participant=n_diseased, # this is important 
+                        n_subtypes=N_SUB,
+                        rng=sub_rng
+                    )
+
                 true_order_and_stages_dict[filename]['N_SUB'] = int(N_SUB)
                 true_order_and_stages_dict[filename]['TEMPERATURE'] = float(TEMPERATURE)
                 true_order_and_stages_dict[filename]['TRUE_ORDERINGS'] = SUBTYPE_RANKINGS
@@ -620,7 +651,8 @@ def generate(
                 # get the fixed ordering, so we can generate data according to that
                 for subtype_idx in range(N_SUB):
                     # get participant_count first 
-                    subtype_p_count = SUBTYPE_LENGTHS[subtype_idx]
+                    subtype_p_count = get_total(r = healthy_ratio, n_diseased=SUBTYPE_LENGTHS[subtype_idx])
+                    
                     # subtype ranking
                     subtype_rannking = SUBTYPE_RANKINGS[subtype_idx]
                     params_use = {}
@@ -655,8 +687,10 @@ def generate(
                         save2file=save2file,
                     )
 
+                    if len(set(df['diseased'])) != 2:
+                        raise ValueError('zero length cluster!')
 
-                    diseased_dict = dict(zip(df.participant, df.diseased))
+                    diseased_dict_old = dict(zip(df.participant, df.diseased))
                     # long to wide
                     dff = df.pivot(
                         index='participant', columns='biomarker', values='measurement')
@@ -666,17 +700,17 @@ def generate(
                     # remove column name (biomarker) to clean display
                     dff.columns.name = None      
                     # bring 'participant' back as a column 
+                    # 'participant' is OLD id here
                     dff.reset_index(inplace=True, drop=False) 
-                    # sort by participant, in place, ascending 
-                    # why sorting? because we need to map true_stages later
+                    # attach diseased using OLD ids
+                    dff['diseased'] = dff['participant'].map(diseased_dict_old)
+                    # sort by OLD id so stage mapping stays aligned
                     dff.sort_values(by='participant', inplace=True)
 
-                    # assign new participant ids first
-                    dff.loc[:, 'participant'] = np.arange(new_participant_start, new_participant_start + len(dff))
-
-                    # now map diseased based on the new ids
-                    diseased_dict = dict(zip(dff["participant"], df["diseased"]))
-                    dff["diseased"] = dff["participant"].map(diseased_dict)
+                    # assign NEW consecutive participant ids
+                    new_ids = np.arange(new_participant_start, new_participant_start + len(dff))
+                    old_to_new = dict(zip(dff['participant'].to_numpy(), new_ids))
+                    dff['participant'] = dff['participant'].map(old_to_new)
 
                     dff['stage_assignments'] = subtype_dict[filename]['true_stages']
                     dff['subtype_assignments'] = subtype_idx

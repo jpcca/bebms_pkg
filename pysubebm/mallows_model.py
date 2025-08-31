@@ -1,3 +1,7 @@
+"""Original authors: https://github.com/ekhiru/top-k-mallows
+"""
+
+
 import numpy as np
 import pysubebm.mallows_kendall as mk
 import pysubebm.mallows_hamming as mh

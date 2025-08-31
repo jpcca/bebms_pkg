@@ -1,3 +1,7 @@
+"""Original authors: https://github.com/ekhiru/top-k-mallows
+"""
+
+
 import numpy as np
 import itertools as it
 import pysubebm.mallows_kendall as mk

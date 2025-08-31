@@ -8,16 +8,14 @@ from scipy.optimize import linear_sum_assignment
 import time
 import numpy as np
 import sys 
-from sklearn.metrics import cohen_kappa_score
+import pysubebm.utils as utils
+from sklearn.metrics import cohen_kappa_score, adjusted_rand_score
 
 # Import utility functions
-from .utils import (setup_logging, 
-                   extract_fname, 
-                   cleanup_old_files, 
-                   compute_unbiased_stage_likelihoods)
-from .viz import save_heatmap, save_traceplot
+from .utils import (extract_fname, cleanup_old_files, convert_np_types)
 # Import algorithms
 from .mh import metropolis_hastings
+
 
 def run_subebm(
     data_file: str,
@@ -41,6 +39,7 @@ def run_subebm(
     prior_v: float = 1.0,
     seed: int = 123,
     save_results:bool=True,
+    theta_phi_matrix: np.ndarray=None,
 ) -> Dict[str, Union[str, int, float, Dict, List]]:
     """
     Run the metropolis hastings algorithm and save results 
@@ -127,63 +126,106 @@ def run_subebm(
         logging.error(f"Error reading data file: {e}")
         raise
 
-    # sort biomarkeres by name, ascending
-    # This is the order appearing in data_matrix
-    biomarker_names = np.array(data.columns)
-    n_biomarkers = len(biomarker_names)
-    n_stages = n_biomarkers + 1
-    logging.info(f"Number of biomarkers: {n_biomarkers}")
-
     n_participants = len(data)
     diseased_arr = np.array(data['diseased'].astype(int).tolist())
 
     data.drop(columns=['participant', 'diseased'], inplace=True)
+    # sort biomarkeres by name, ascending
+    # This is the order appearing in data_matrix
+    biomarker_names = np.array(data.columns)
+    n_biomarkers = len(biomarker_names)
+    logging.info(f"Number of biomarkers: {n_biomarkers}")
     data_matrix = data.to_numpy()
     non_diseased_ids = np.where(diseased_arr == 0)[0]
     healthy_ratio = len(non_diseased_ids)/n_participants
+    diseased_mask = (diseased_arr == 1)
 
     # Run the Metropolis-Hastings algorithm
     try:
-        accepted_orders, log_likelihoods, final_theta_phi, final_stage_post, final_subtype_prior, final_stage_prior, final_subtype_post = metropolis_hastings( 
+        _, _, best_order_matrix, max_log_likelihood, _, _, _, _, best_subtype_post = metropolis_hastings( 
             data_matrix=data_matrix, diseased_arr=diseased_arr, n_subtypes=n_subtypes,
-            iterations = n_iter, n_shuffle = n_shuffle, n_subtype_shuffle = n_subtype_shuffle, prior_n=prior_n, prior_v=prior_v, rng=rng
+            iterations = n_iter, n_shuffle = n_shuffle, n_subtype_shuffle = n_subtype_shuffle, prior_n=prior_n, prior_v=prior_v, rng=rng,
+            # theta_phi=theta_phi_matrix
         )
+        # accepted_orders, log_likelihoods, final_theta_phi, final_stage_post, final_subtype_prior, final_stage_prior, final_subtype_post = metropolis_hastings( 
+        #     data_matrix=data_matrix, diseased_arr=diseased_arr, n_subtypes=n_subtypes,
+        #     iterations = n_iter, burn_in=burn_in, n_shuffle = n_shuffle, n_subtype_shuffle = n_subtype_shuffle, prior_n=prior_n, prior_v=prior_v, rng=rng,
+        #     # theta_phi=theta_phi_matrix
+        # )
     except Exception as e:
         logging.error(f"Error in Metropolis-Hastings algorithm: {e}")
         raise
 
-    best_order_matrix = accepted_orders[log_likelihoods.index(max(log_likelihoods))]
-    if len(true_order_matrix) > 0:
-        n = len(best_order_matrix)
+    # # --- FIX: Apply Burn-in and Thinning ---
+    # post_burn_in_orders = accepted_orders[burn_in::thinning]
+    # post_burn_in_likelihoods = log_likelihoods[burn_in::thinning]
+
+    # # Now, use these sliced lists for all subsequent analysis
+    # if len(post_burn_in_likelihoods) <= 0:
+    #     raise ValueError("No samples left after burn-in and thinning. Check your parameters.")
+
+    # # Find the best order from the POST-BURN-IN samples
+    # best_idx = np.argmax(post_burn_in_likelihoods)
+    # best_order_matrix = post_burn_in_orders[best_idx]
+
+    mapping = None 
+    remapped_best_order_matrix = best_order_matrix
+    tau = None 
+    subtype_assignment_accuracy = None
+    subtype_assignment_accuracy_max = None 
+    if true_order_matrix is not None:
+        n = len(best_order_matrix) # n_subtypes
         dist = np.zeros((n, n))
 
         for i in range(n):
             for j in range(n):
-                tau, _ = kendalltau(best_order_matrix[i], true_order_matrix[j])
-                # normalized kendall's tau distance
-                dist[i, j] = (1 - tau)/2  # smaller dist = better match
+                dist[i,j]= utils.normalized_kendalls_tau_distance(best_order_matrix[i], np.array(true_order_matrix[j]))
+                # # normalized kendall's tau distance
+                # dist[i, j] = (1 - tau)/2  # smaller dist = better match
         
-        row_ind, col_ind = linear_sum_assignment(dist)
-        tau = dist[row_ind, col_ind].mean()
+        # This finds the best matching: estimated_indices[i] -> true_indices[i]
+        estimated_indices, true_indices = linear_sum_assignment(dist)
+
+        # Calculate the matched Kendall's Tau
+        tau = dist[estimated_indices, true_indices].mean()
+
+        mapping = dict(zip(estimated_indices, true_indices))
+
+        remapped_best_order_matrix = [best_order_matrix[mapping[i]] for i in range(n)]
     
-    # subtype assignment
-    ml_subtypes = np.argmax(final_subtype_post, axis=1).astype(int)
-    subtype_assignment_accuracy = float(cohen_kappa_score(ml_subtypes, true_subtype_assignments))
+    # subtype assignment (only for diseased participants)
+    # ml_subtypes = np.argmax(best_subtype_post[diseased_mask], axis=1).astype(int)
+    probs = best_subtype_post[diseased_mask]  # shape: (n_diseased, n_subtypes)
+    ml_subtypes = np.array([
+        rng.choice(probs.shape[1], p=row/row.sum())  
+        for row in probs], dtype=int)
+    ml_subtypes_max = np.argmax(probs, axis=1).astype(int)
+    if true_subtype_assignments is not None and mapping is not None:
+        #  (only for diseased participants)
+        true_subtype_assignments = np.array(true_subtype_assignments)[diseased_mask]
+        subtype_assignment_accuracy = adjusted_rand_score(true_subtype_assignments, ml_subtypes)
+        subtype_assignment_accuracy_max = adjusted_rand_score(true_subtype_assignments, ml_subtypes_max)
+        # remapped_ml_subtypes = np.array([mapping[x] for x in ml_subtypes])
+        # subtype_assignment_accuracy = float(cohen_kappa_score(remapped_ml_subtypes, true_subtype_assignments))
     
     end_time = time.time()
     results = {
         "runtime": end_time - start_time,
         'healthy_ratio': healthy_ratio,
-        "max_log_likelihood": float(max(log_likelihoods)),
+        "max_log_likelihood": float(max_log_likelihood),
         "kendalls_tau": tau,
         'subtype_assignment_accuracy': subtype_assignment_accuracy,
+        'subtype_assignment_accuracy_max': subtype_assignment_accuracy_max,
+        'n_subtypes': int(n_subtypes),
+        'ml_orders': remapped_best_order_matrix,
+        'true_orders': true_order_matrix
     }
     
     if save_results:
         # Save results
         try:
             with open(f"{results_folder}/{fname_prefix}{fname}_results.json", "w") as f:
-                json.dump(results, f, indent=4)
+                json.dump(convert_np_types(results), f, indent=4)
         except Exception as e:
             logging.error(f"Error writing results to file: {e}")
             raise

@@ -1,0 +1,34 @@
+N_VARIANTS: 5
+JS: [300, 500, 1000]
+RS: [0.25, 0.5, 0.75]
+SUSTAIN_FOLDER: 'pysubebm/test/sustain_results/results'
+MY_FOLDER: 'pysubebm/test/algo_results/results'
+TEMPERATURE_LO: 0.01
+TEMPERATURE_HI: 0.35
+N_SUB_LO: 3
+N_SUB_HI: 6
+GEN_DIRICHLET_PRIORS: [0.1, 1, 5, 20]
+SUBTYPE_LENGTH_LO: 5 # the lowest possible number of diseased participant any subtype can have 
+EXPERIMENT_NAMES:
+  - sn_kjOrdinalDM_xnjNormal            # Experiment 1: Ordinal kj with Dirichlet-Multinomial, Normal Xnj
+  # - sn_kjOrdinalDM_xnjNonNormal         # Experiment 2: Ordinal kj with Dirichlet-Multinomial, Non-Normal Xnj
+  # - sn_kjOrdinalUniform_xnjNormal       # Experiment 3: Ordinal kj with Uniform distribution, Normal Xnj
+  # - sn_kjOrdinalUniform_xnjNonNormal    # Experiment 4: Ordinal kj with Uniform distribution, Non-Normal Xnj
+  # - sn_kjContinuousUniform              # Experiment 5: Continuous kj with Uniform distribution
+  # - sn_kjContinuousBeta                 # Experiment 6: Continuous kj with Beta distribution
+  # - xiNearNormal_kjContinuousUniform    # Experiment 7: Near-normal Xi with Continuous Uniform kj
+  # - xiNearNormal_kjContinuousBeta       # Experiment 8: Near-normal Xi with Continuous Beta kj
+  # - xiNearNormalWithNoise_kjContinuousBeta  # Experiment 9: Same as Exp 8 but with noises to xi
+
+MP_SAMPLE_COUNT: 1
+MP_MCMC: 300
+N_MCMC: 20000
+N_SHUFFLE: 2
+BURN_IN: 200
+THINNING: 1
+GEN_SEED: 53
+TIMES_MORE: 3
+LOW_NUM: 2
+HIGH_NUM: 4 
+MCMC_SEED: 42
+OUTPUT_DIR: 'algo_results'
