@@ -1,0 +1,10 @@
+{
+    "with_labels": 0,
+    "runtime": 9.323973894119263,
+    "healthy_ratio": 0.25,
+    "max_log_likelihood": 1060.409790179337,
+    "kendalls_tau": 0.36363636363636365,
+    "subtype_acc": 1.0,
+    "n_subtypes": 1,
+    "mean_stage_healthy": 0.013333333333333334
+}

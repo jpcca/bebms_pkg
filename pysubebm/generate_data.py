@@ -51,37 +51,37 @@ def very_irregular_distribution(
     segment_1, segment_2, segment_3 = np.array_split(np.arange(size), 3)
 
     # --- Highly non-normal design per biomarker ---
-    if biomarker in ["MMSE", "ADAS"]:
+    if biomarker in ["MMSE", "ADAS13", "RAVLT_immediate"]:
         # Cognitive tests: Triangular + Normal + Exponential mixture
         base[segment_1] = rng.triangular(mean - 2*std, mean - 1.5*std, mean, size=len(segment_1))
         base[segment_2] = rng.normal(mean + std, 0.3 * std, size=len(segment_2))
         base[segment_3] = rng.exponential(scale=0.7 * std, size=len(segment_3)) + mean - 0.5 * std
 
-    elif biomarker in ["AB", "P-Tau"]:
+    elif biomarker in ["ABETA", "PTAU", "TAU"]:
         # CSF biomarkers: Pareto + Uniform + Logistic mixture
         base[segment_1] = rng.pareto(1.5, size=len(segment_1)) * std + mean - 2 * std
         base[segment_2] = rng.uniform(mean - 1.5 * std, mean + 1.5 * std, size=len(segment_2))
         base[segment_3] = rng.logistic(loc=mean, scale=std, size=len(segment_3))
 
-    elif biomarker in ["HIP-FCI", "HIP-GMI"]:
+    elif biomarker in ["VentricleNorm", "HippocampusNorm"]:
         # Hippocampus metrics: Beta + Exponential + Modified normal
         base[segment_1] = rng.beta(0.5, 0.5, size=len(segment_1)) * 4 * std + mean - 2 * std
         base[segment_2] = rng.exponential(scale=std * 0.4, size=len(segment_2)) * rng.choice([-1, 1], size=len(segment_2)) + mean
         base[segment_3] = rng.normal(mean, std * 0.5, size=len(segment_3)) + rng.choice([0, std * 2], size=len(segment_3))
 
-    elif biomarker in ["AVLT-Sum", "PCC-FCI"]:
+    elif biomarker in ["WholeBrainNorm", "EntorhinalNorm"]:
         # Memory and PCC metrics: Gamma + Weibull + Normal with spikes
         base[segment_1] = rng.gamma(shape=2, scale=0.5 * std, size=len(segment_1)) + mean - std
         base[segment_2] = rng.weibull(1.0, size=len(segment_2)) * std + mean - std
         base[segment_3] = rng.normal(mean, std * 0.5, size=len(segment_3)) + rng.choice([-1, 1], size=len(segment_3)) * std
 
-    elif biomarker == "FUS-GMI":
+    elif biomarker == "FusiformNorm":
         # Fusiform gyrus GMI: Heavy-tailed Cauchy with normal noise
         raw = rng.standard_cauchy(size=size) * std + mean
         raw += rng.normal(0, 0.2 * std, size=size)
         base = np.clip(raw, mean - 4 * std, mean + 4 * std)
 
-    elif biomarker == "FUS-FCI":
+    elif biomarker == "MidTempNorm":
         # Fusiform gyrus FCI: Bimodal with sharp spike
         spike_size = size // 10
         base[:spike_size] = rng.normal(mean, 0.2 * std, size=spike_size)
@@ -97,7 +97,7 @@ def very_irregular_distribution(
 
     return base
 
-def generate_measurements_kjOrdinal(
+def generate_measurements_ebm(
     params: Dict[str, Dict[str, float]], 
     event_time_dict: Dict[str, float], 
     shuffled_biomarkers: np.ndarray, 
@@ -182,7 +182,7 @@ def generate_measurements_kjOrdinal(
             data.append(record)
     return data
 
-def generate_measurements_kjContinuous(
+def generate_measurements_sigmoid(
     experiment_name: str,
     event_time_dict: Dict[str, float],
     all_kjs: np.ndarray,
@@ -348,7 +348,7 @@ def generate_data(
     # ================================================================
     # Core generation logic based on experiment type
     # ================================================================
-
+    # exp 1-4
     if "kjOrdinal" in experiment_name:
         # Ordinal disease stage experiments (stages are discrete integers)
         
@@ -389,15 +389,16 @@ def generate_data(
         all_diseased = all_diseased[shuffle_idx]
 
         # Generate measurements for all participants and biomarkers
-        data = generate_measurements_kjOrdinal(
+        data = generate_measurements_ebm(
             params, event_time_dict, shuffled_biomarkers, experiment_name, all_kjs, 
             all_diseased, keep_all_cols, rng=rng)
 
         # For oridinal kjs and Sn, just use the kjs directly
         true_stages = [int(x) for x in all_kjs]
-    
+    # kj continuous 
     else:
         # Continuous disease stage experiments (stages are real numbers)
+        epsilon = 1e-8  # a small value
         
         # Generate continuous event times for biomarkers
         if experiment_name.startswith('xi'):
@@ -405,8 +406,8 @@ def generate_data(
             event_time_raw = rng.beta(
                 a=beta_params['near_normal']['alpha'], 
                 b=beta_params['near_normal']['beta'], 
-                size=max_stage)
-            # Scale to [0, max_stage]
+                size=max_stage) + epsilon
+            
             event_times = event_time_raw * max_stage
         
         # Assign event times to biomarkers
@@ -419,19 +420,18 @@ def generate_data(
                 a=beta_params['uniform']['alpha'],
                 b=beta_params['uniform']['beta'],
                 size=n_diseased
-            )
+            ) + epsilon
         else:
             # Use skewed beta for disease stages
             disease_stages_raw = rng.beta(
                 a=beta_params['regular']['alpha'],
                 b=beta_params['regular']['beta'],
                 size=n_diseased
-            )
+            ) + epsilon
             
-        # Scale disease stages to (0, max_stage]
-        epsilon = 1e-8  # a small value
-        disease_stages = np.clip(disease_stages_raw * max_stage, epsilon, max_stage)
-
+        # Scale disease stages to (0, max_stage], but we are not forcing max(disease_stages) to be max_stage.
+        disease_stages = disease_stages_raw * max_stage
+    
         # Combine with healthy participants (stage 0)
         all_kjs = np.concatenate([np.zeros(n_healthy), disease_stages])
         all_diseased = all_kjs > 0 
@@ -441,11 +441,17 @@ def generate_data(
         all_kjs = all_kjs[shuffle_idx]
         all_diseased = all_diseased[shuffle_idx]
 
-        # Generate measurements using continuous disease progression model
-        data = generate_measurements_kjContinuous(
-            experiment_name, event_time_dict, all_kjs, all_diseased, 
-            shuffled_biomarkers, params, keep_all_cols, noise_std_parameter=noise_std_parameter, rng=rng)
-        
+        if 'sigmoid' in experiment_name:
+            # Generate measurements for the sigmoid model
+            data = generate_measurements_sigmoid(
+                experiment_name, event_time_dict, all_kjs, all_diseased, 
+                shuffled_biomarkers, params, keep_all_cols, noise_std_parameter=noise_std_parameter, rng=rng)
+        else:
+            # generate measurements for ebm model 
+            data = generate_measurements_ebm(
+                params, event_time_dict, shuffled_biomarkers, experiment_name, all_kjs, 
+                all_diseased, keep_all_cols, rng=rng)
+            
         sorted_event_times = sorted(event_times)
         true_stages = [get_rank(sorted_event_times, x) for x in all_kjs]
 
@@ -504,7 +510,7 @@ def generate(
     prefix: Optional[str] = None,
     suffix: Optional[str] = None,
     keep_all_cols: bool = False ,
-    fixed_biomarker_order: bool = True,
+    fixed_biomarker_order: bool = True, 
     noise_std_parameter: float = 0.05,
     temperature_lo:float=0.1, # to control mallows distribution dispersion
     temperature_hi:float=1.0,
@@ -513,7 +519,7 @@ def generate(
     save2file: bool=False,
     provided_subtype_orders:np.ndarray=None,
     subtype_dirichlet_priors: List[int]=None, # the dirichilet prior
-    subtype_length_lo:int=5,
+    subtype_length_lo:int=5, # least number of participants in each subtype. 
 ) -> Dict[str, Dict[str, int]]:
     """
     Generate multiple datasets for different experimental configurations.
@@ -629,15 +635,26 @@ def generate(
                 # N_SUB length vector, i.e., the participant in each subtype ordering
                 SUBTYPE_LENGTHS = np.zeros(N_SUB, dtype=np.int64)
                 # make sure each subtype has at least 5 (diseased) participants
-                while not np.all(SUBTYPE_LENGTHS >= subtype_length_lo):
-                    # decide the dirichlet prior, choose one from [0.1, 1, 5, 20]
+                max_attempt = 50
+                curr_attempt = 0
+                success = False
+
+                while curr_attempt <= max_attempt:
                     subtype_dirichlet_alpha = rng.choice(subtype_dirichlet_priors)
                     SUBTYPE_LENGTHS = utils.dirichlet_multinomial(
-                        subtype_assignment_prior= subtype_dirichlet_alpha,
-                        total_participant=n_diseased, # this is important 
+                        subtype_assignment_prior=subtype_dirichlet_alpha,
+                        total_participant=n_diseased,
                         n_subtypes=N_SUB,
                         rng=sub_rng
                     )
+                    if np.all(SUBTYPE_LENGTHS >= subtype_length_lo):
+                        success = True
+                        break
+                    curr_attempt += 1
+
+                if not success:
+                    raise ValueError(f"Failed to make sure all subtype has at least {subtype_length_lo} participants!")
+
 
                 true_order_and_stages_dict[filename]['N_SUB'] = int(N_SUB)
                 true_order_and_stages_dict[filename]['TEMPERATURE'] = float(TEMPERATURE)
@@ -680,7 +697,7 @@ def generate(
                         prefix=prefix,
                         suffix=suffix,
                         keep_all_cols=keep_all_cols,
-                        fixed_biomarker_order = fixed_biomarker_order,
+                        fixed_biomarker_order = True,
                         noise_std_parameter = noise_std_parameter,
                         true_order_and_stages_dict=subtype_dict,
                         rng=sub_rng,

@@ -44,7 +44,7 @@ def save_heatmap(
     probs = get_biomarker_stage_probability(accepted_orders, burn_in, thinning)
     sorted_indices = np.argsort(best_order)
     probs = probs[sorted_indices]
-    biomarker_names = [f"{biomarker_names[i]} ({best_order[i]})" for i in sorted_indices]
+    biomarker_names = [f"{biomarker_names[i]} ({best_order[i]+1})" for i in sorted_indices]
 
     # Adjust width based on max biomarker name
     max_name_len = max(len(name) for name in biomarker_names)

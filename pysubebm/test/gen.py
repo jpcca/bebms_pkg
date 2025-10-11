@@ -31,6 +31,8 @@ def convert_np_types(obj):
 if __name__ == '__main__':
     with open('config.yaml', 'r') as f:
         config = yaml.safe_load(f)
+    
+    # params_file = 'CHEN_ORIGINAL.json'
 
     rng = np.random.default_rng(53)
     cwd = os.path.dirname(__file__)

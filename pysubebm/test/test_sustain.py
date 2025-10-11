@@ -101,7 +101,7 @@ for data_file in data_files[:3]:
 
     if true_order_matrix is not None:
         mapping = None 
-        best_order_matrix = samples_sequence[:, :, 0]
+        best_order_matrix = np.argsort(samples_sequence[:, :, 0])
         n = len(best_order_matrix)
         dist = np.zeros((n, n))
 
@@ -119,20 +119,20 @@ for data_file in data_files[:3]:
         # Calculate the matched Kendall's Tau
         tau = dist[estimated_indices, true_indices].mean()
 
-        mapping = dict(zip(estimated_indices, true_indices))
+    #     mapping = dict(zip(estimated_indices, true_indices))
 
-    ml_subtypes = ml_subtype.flatten()[diseased_mask]
+    # ml_subtypes = ml_subtype.flatten()[diseased_mask]
 
-    if true_subtype_assignments is not None and mapping is not None:
-        true_subtype_assignments = np.array(true_subtype_assignments)[diseased_mask]
-        subtype_assignment_accuracy = adjusted_rand_score(true_subtype_assignments, ml_subtypes)
+    # if true_subtype_assignments is not None and mapping is not None:
+    #     true_subtype_assignments = np.array(true_subtype_assignments)[diseased_mask]
+    #     subtype_assignment_accuracy = adjusted_rand_score(true_subtype_assignments, ml_subtypes)
     
     end_time = time.time()
 
     result = {
         "runtime": end_time - start_time,
         'tau': float(tau),
-        'subtype_acc': float(subtype_assignment_accuracy)
+        # 'subtype_acc': float(subtype_assignment_accuracy)
     }
 
     with open(f"{OUTPUT_DIR}/results/{fname}_results.json", "w") as f:

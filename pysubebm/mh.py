@@ -12,22 +12,15 @@ def metropolis_hastings(
         n_subtype_shuffle:int,
         prior_n: float,
         prior_v: float,
+        burn_in:int,
         # theta_phi:np.ndarray,
         rng: np.random.Generator,
+        with_labels:bool,
         # shared_theta_phi:bool=True,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Implement metroplis hastings MCMC algorithm
     """  
-    # initiate best
-    best_ll = -np.inf
-    best_iter = -1
-    best_order = None
-    best_theta_phi = None
-    best_stage_prior = None
-    best_subtype_prior = None
-    # optional if you want labels directly without recompute:
-    best_stage_post = None
-    best_subtype_post = None
+    n_subtype_shuffle = min(n_subtypes, n_subtype_shuffle)
 
     n_participants, n_biomarkers = data_matrix.shape
     n_subtype_shuffle = min(n_subtype_shuffle, n_subtypes)
@@ -37,14 +30,18 @@ def metropolis_hastings(
         raise ValueError("n_shuffle must be >= 2 or =0")
     if n_shuffle > n_biomarkers:
         raise ValueError("n_shuffle cannot exceed n_biomarkers")
+    
+    if with_labels:
+        n_stages = n_biomarkers
+    else:
+        n_stages = n_biomarkers + 1
 
-    n_stages = n_biomarkers + 1
     ## THESE ARE INDICES!
-    disease_stages = np.arange(start=0, stop=n_biomarkers, step=1)
-    n_disease_stages = n_stages - 1
     non_diseased_ids = np.where(diseased_arr == 0)[0]
     diseased_ids = np.where(diseased_arr == 1)[0]
     non_diseased_mask = (diseased_arr == 0)
+
+    all_log_likes_subtypes = np.zeros((iterations, n_participants, n_subtypes))
 
     """Initiate theta phi
         Shape: (n_subtypes, N, 4)
@@ -72,7 +69,9 @@ def metropolis_hastings(
     # For each subtype, create a permutation of ranks and assign them
     for s in range(n_subtypes):
         # This creates an array like [2, 0, 1] meaning bm 0 has rank 2, bm 1 has rank 0, etc.
-        ranks = rng.permutation(np.arange(n_biomarkers))
+        ranks = rng.permutation(np.arange(n_biomarkers)) # no matter with labels or not, the order always has a length of n_biomarkers. thta's fixed. the only diff is whether it shoudl start from 0 (indx) or 1 (real). 
+        if not with_labels: # if not assuming label, disease stagess are 0 to n_biomarkers+1, we should make sure order are real order, so starts from 1
+            ranks += 1 
         current_order[s, :] = ranks
 
     """Initiate staging prior and post
@@ -82,17 +81,17 @@ def metropolis_hastings(
     """
     # shape: (n_subtypes, n_disease_stages)
     # dirichlet alpha prior for stage_prior
-    stage_alpha_prior = np.ones((n_subtypes, n_disease_stages), dtype=np.float64)
+    stage_alpha_prior = np.ones((n_subtypes, n_stages), dtype=np.float64)
 
     # index from zero here
     # Initialize stage_prior array
     # stage_prior, previoulsy I used current_pi. This is the prior distribution of N disease stages, for each subtype
-    current_stage_prior = np.zeros((n_subtypes, n_disease_stages), dtype=np.float64)
+    current_stage_prior = np.zeros((n_subtypes, n_stages), dtype=np.float64)
     # Sample from Dirichlet distribution for each subtype, based on alpha prior
     for i in range(n_subtypes):
         current_stage_prior[i, :] = rng.dirichlet(stage_alpha_prior[i, :])
     # Only for diseased participants
-    current_stage_post = np.zeros((n_participants, n_subtypes, n_disease_stages), dtype=np.float64)
+    current_stage_post = np.zeros((n_participants, n_subtypes, n_stages), dtype=np.float64)
 
     """Initiate subtype prior and subtype post
     """
@@ -109,10 +108,10 @@ def metropolis_hastings(
     
     # range(0, n_subtypes)
     full_subtypes_to_update = np.arange(0, n_subtypes)
-    current_ln_likelihood, current_stage_post, current_subtype_post, current_ln_likes_subtypes = utils.compute_likelihood_and_posteriors(
+    if with_labels:
+        current_ln_likelihood, current_stage_post, current_subtype_post, current_ln_likes_subtypes = utils.compute_likelihood_and_posteriors_with_labels(
             data_matrix,
             non_diseased_mask,
-            disease_stages,
             current_order,
             full_subtypes_to_update,
             current_ln_likes_subtypes, # since full_subtypes_to_update, this ln_likes_subtypes will be completely rewritten
@@ -121,6 +120,17 @@ def metropolis_hastings(
             current_stage_prior,
             current_subtype_prior,
         )
+    else:
+        current_ln_likelihood, current_stage_post, current_subtype_post, current_ln_likes_subtypes = utils.compute_likelihood_and_posteriors(
+                data_matrix,
+                current_order,
+                full_subtypes_to_update,
+                current_ln_likes_subtypes, # since full_subtypes_to_update, this ln_likes_subtypes will be completely rewritten
+                current_stage_post, # will be rewritten
+                current_theta_phi,
+                current_stage_prior,
+                current_subtype_prior,
+            )
 
     # current_ln_likelihood = -np.inf
     acceptance_count = 0
@@ -130,10 +140,19 @@ def metropolis_hastings(
     # This records all log likelihoods
     log_likelihoods = np.zeros(iterations, dtype=np.float64)
 
+    # initiate best
+    best_ll = -np.inf
+    best_order = current_order.copy()
+    best_theta_phi = current_theta_phi.copy()
+    best_stage_prior = current_stage_prior.copy()
+    best_subtype_prior = current_subtype_prior.copy()
+    # optional if you want labels directly without recompute:
+    best_stage_post = current_stage_post.copy()
+    best_subtype_post = current_subtype_post.copy()
+
     for iteration in range(iterations):
         # random_state = rng.integers(0, 2**32 - 1)
         # log_likelihoods.append(current_ln_likelihood)
-        log_likelihoods[iteration] = current_ln_likelihood
 
         new_order = current_order.copy()
         # if iteration <= iterations * 0.3:
@@ -164,55 +183,87 @@ def metropolis_hastings(
         """
 
         # --- Compute stage posteriors with NEW order and OLD θ/φ ---
-        _, stage_post_for_update, subtype_post_for_update, _  = utils.compute_likelihood_and_posteriors(
-            data_matrix,
-            non_diseased_mask,
-            disease_stages,
-            new_order,
-            subtypes_to_update, # only update this subtype
-            current_ln_likes_subtypes,
-            current_stage_post,
-            current_theta_phi,
-            current_stage_prior,
-            current_subtype_prior,
-        )
+        if with_labels:
+            # --- Compute stage posteriors with NEW order and OLD θ/φ ---
+            _, stage_post_for_update, subtype_post_for_update, _  = utils.compute_likelihood_and_posteriors_with_labels(
+                data_matrix,
+                non_diseased_mask,
+                new_order,
+                subtypes_to_update, # only update this subtype
+                current_ln_likes_subtypes,
+                current_stage_post,
+                current_theta_phi,
+                current_stage_prior,
+                current_subtype_prior,
+            )
 
-        # Compute the new theta_phi_estimates based on new_order and intermediate stage post and subtype post
-        new_theta_phi = utils.update_theta_phi_estimates(
-            n_biomarkers,
-            n_participants,
-            non_diseased_ids,
-            data_matrix,
-            new_order,
-            current_theta_phi,  # Current state’s θ/φ
-            # current_stage_post,
-            # current_subtype_post,
-            stage_post_for_update,
-            subtype_post_for_update,
-            disease_stages,
-            prior_n,    # Weak prior (not data-dependent)
-            prior_v,     # Weak prior (not data-dependent)
-        )
+            # Compute the new theta_phi_estimates based on new_order and intermediate stage post and subtype post
+            new_theta_phi = utils.update_theta_phi_estimates_with_labels(
+                n_participants,
+                non_diseased_ids,
+                data_matrix,
+                new_order,
+                current_theta_phi,  # Current state’s θ/φ
+                stage_post_for_update,
+                subtype_post_for_update,
+                prior_n,    # Weak prior (not data-dependent)
+                prior_v,     # Weak prior (not data-dependent)
+            )
 
-        # NOTE THAT WE CANNOT RECOMPUTE P(K_J) BASED ON THIS NEW THETA PHI.
-        # THIS IS BECAUSE IN MCMC, WE CAN ONLY GET NEW THINGS THAT ARE SOLELY CONDITIONED ON THE NEWLY PROPOSED S'
+            # NOTE THAT WE CANNOT RECOMPUTE P(K_J) BASED ON THIS NEW THETA PHI.
+            # THIS IS BECAUSE IN MCMC, WE CAN ONLY GET NEW THINGS THAT ARE SOLELY CONDITIONED ON THE NEWLY PROPOSED S'
 
-        # Recompute new_ln_likelihood using the new theta_phi_estimates
-        new_ln_likelihood, stage_post_new, subtype_post_new, ln_likes_subtypes_new = utils.compute_likelihood_and_posteriors(
-            data_matrix,
-            non_diseased_mask,
-            disease_stages,
-            new_order,
-            # subtypes_to_update,
-            full_subtypes_to_update,
-            current_ln_likes_subtypes, # since full_subtypes_to_update, this ln_likes_subtypes will be completely rewritten
-            stage_post_for_update, # all will be recalculated 
-            # current_stage_post,
-            # current_theta_phi,
-            new_theta_phi,
-            current_stage_prior,
-            current_subtype_prior,
-        )
+            # Recompute new_ln_likelihood using the new theta_phi_estimates
+            new_ln_likelihood, stage_post_new, subtype_post_new, ln_likes_subtypes_new = utils.compute_likelihood_and_posteriors_with_labels(
+                data_matrix,
+                non_diseased_mask,
+                new_order,
+                # subtypes_to_update,
+                full_subtypes_to_update,
+                current_ln_likes_subtypes, # since full_subtypes_to_update, this ln_likes_subtypes will be completely rewritten
+                stage_post_for_update, # all will be recalculated 
+                new_theta_phi,
+                current_stage_prior,
+                current_subtype_prior,
+            )
+        else:
+            _, stage_post_for_update, subtype_post_for_update, _  = utils.compute_likelihood_and_posteriors(
+                data_matrix,
+                new_order,
+                subtypes_to_update, # only update this subtype
+                current_ln_likes_subtypes,
+                current_stage_post,
+                current_theta_phi,
+                current_stage_prior,
+                current_subtype_prior,
+            )
+
+            # Compute the new theta_phi_estimates based on new_order and intermediate stage post and subtype post
+            new_theta_phi = utils.update_theta_phi_estimates(
+                n_participants,
+                data_matrix,
+                new_order,
+                current_theta_phi,  # Current state’s θ/φ
+                stage_post_for_update,
+                subtype_post_for_update,
+                prior_n,    # Weak prior (not data-dependent)
+                prior_v,     # Weak prior (not data-dependent)
+            )
+
+            # NOTE THAT WE CANNOT RECOMPUTE P(K_J) BASED ON THIS NEW THETA PHI.
+            # THIS IS BECAUSE IN MCMC, WE CAN ONLY GET NEW THINGS THAT ARE SOLELY CONDITIONED ON THE NEWLY PROPOSED S'
+
+            # Recompute new_ln_likelihood using the new theta_phi_estimates
+            new_ln_likelihood, stage_post_new, subtype_post_new, ln_likes_subtypes_new = utils.compute_likelihood_and_posteriors(
+                data_matrix,
+                new_order,
+                full_subtypes_to_update,
+                current_ln_likes_subtypes, # since full_subtypes_to_update, this ln_likes_subtypes will be completely rewritten
+                stage_post_for_update, # all will be recalculated 
+                new_theta_phi,
+                current_stage_prior,
+                current_subtype_prior,
+            )
         
         # Compute acceptance probability
         delta = new_ln_likelihood - current_ln_likelihood
@@ -243,18 +294,18 @@ def metropolis_hastings(
 
             if current_ln_likelihood > best_ll:
                 best_ll = current_ln_likelihood
-                best_iter = iteration
                 best_order = current_order.copy()
                 best_theta_phi = current_theta_phi.copy()
                 best_stage_prior = current_stage_prior.copy()
                 best_subtype_prior = current_subtype_prior.copy()
-                # optional:
                 best_stage_post = current_stage_post.copy()
                 best_subtype_post = current_subtype_post.copy()
         
         # all_accepted_orders.append(current_order.copy())
         # copy because it will change later. We don't want the messy effects. 
         all_accepted_orders[iteration, :, :] = current_order.copy()
+        all_log_likes_subtypes[iteration, :, :] = current_ln_likes_subtypes.copy()
+        log_likelihoods[iteration] = current_ln_likelihood
 
         # Log progress
         if (iteration + 1) % max(10, iterations // 10) == 0:
@@ -264,5 +315,8 @@ def metropolis_hastings(
                 f"Acceptance Ratio: {acceptance_ratio:.2f}%, "
                 f"Log Likelihood: {current_ln_likelihood:.4f}, "
             )
+    
+    if not with_labels: # if not with labels, these are real places starting from 1. for evaluation, we need -1. 
+        best_order -= 1
 
-    return all_accepted_orders, log_likelihoods, best_order, best_ll, best_theta_phi, best_stage_post, best_subtype_prior, best_stage_prior, best_subtype_post
+    return all_accepted_orders, log_likelihoods, best_order, best_ll, best_theta_phi, best_stage_post, best_subtype_post, best_stage_prior, best_subtype_prior

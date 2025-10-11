@@ -3,19 +3,16 @@ import pandas as pd
 import os
 import logging
 from typing import List, Dict, Optional, Union
-from scipy.stats import kendalltau
-from scipy.optimize import linear_sum_assignment
 import time
 import numpy as np
 import sys 
 import pysubebm.utils as utils
-from sklearn.metrics import cohen_kappa_score, adjusted_rand_score
+from .viz import save_heatmap, save_traceplot
 
 # Import utility functions
 from .utils import (extract_fname, cleanup_old_files, convert_np_types)
 # Import algorithms
 from .mh import metropolis_hastings
-
 
 def run_subebm(
     data_file: str,
@@ -31,8 +28,7 @@ def run_subebm(
     thinning: int = 1,
     plot_title_detail: Optional[str] = "",
     fname_prefix: Optional[str] = "",
-    skip_heatmap: Optional[bool] = True,
-    skip_traceplot: Optional[bool] = True,
+    save_plots:Optional[bool]=False,
     # Strength of the prior belief in prior estimate of the mean (μ), set to 1 as default
     prior_n: float = 1.0,
     # Prior degrees of freedom, influencing the certainty of prior estimate of the variance (σ²), set to 1 as default
@@ -40,6 +36,8 @@ def run_subebm(
     seed: int = 123,
     save_results:bool=True,
     theta_phi_matrix: np.ndarray=None,
+    obtain_results:bool=True, # if not, just return the max_ll and the empty results
+    with_labels:bool=True, # whether assuming knowelege of the true label or not
 ) -> Dict[str, Union[str, int, float, Dict, List]]:
     """
     Run the metropolis hastings algorithm and save results 
@@ -90,30 +88,17 @@ def run_subebm(
 
         # Then create directories
         os.makedirs(output_dir, exist_ok=True)
-
-        heatmap_folder = os.path.join(output_dir, "heatmaps")
-        traceplot_folder = os.path.join(output_dir, "traceplots")
         results_folder = os.path.join(output_dir, "results")
-        # logs_folder = os.path.join(output_dir, "records")
-
-        if not skip_heatmap:
-            os.makedirs(heatmap_folder, exist_ok=True)
-        if not skip_traceplot:
-            os.makedirs(traceplot_folder, exist_ok=True)
         os.makedirs(results_folder, exist_ok=True)
         # os.makedirs(logs_folder, exist_ok=True)
 
-        # # Finally set up logging
-        # log_file = os.path.join(logs_folder, f"{fname_prefix}{fname}.log")
-        # setup_logging(log_file)
-
-        # Finally set up logging (console only, no file)
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s [%(levelname)s] %(message)s",
-            handlers=[logging.StreamHandler(sys.stdout)],
-            force=True
-        )
+    # Finally set up logging (console only, no file)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[logging.StreamHandler(sys.stdout)],
+        force=True
+    )
 
     # Log the start of the run
     logging.info(f"Running {fname}")
@@ -134,107 +119,128 @@ def run_subebm(
     # This is the order appearing in data_matrix
     biomarker_names = np.array(data.columns)
     n_biomarkers = len(biomarker_names)
+    n_stages = n_biomarkers + 1 # all stages include 0
     logging.info(f"Number of biomarkers: {n_biomarkers}")
     data_matrix = data.to_numpy()
     non_diseased_ids = np.where(diseased_arr == 0)[0]
     healthy_ratio = len(non_diseased_ids)/n_participants
     diseased_mask = (diseased_arr == 1)
+    healthy_mask = (diseased_mask == 0)
 
     # Run the Metropolis-Hastings algorithm
     try:
-        _, _, best_order_matrix, max_log_likelihood, _, _, _, _, best_subtype_post = metropolis_hastings( 
+        all_orders, all_loglikes, best_order_matrix, max_log_likelihood, best_theta_phi, best_stage_post, best_subtype_post, _, _ = metropolis_hastings( 
             data_matrix=data_matrix, diseased_arr=diseased_arr, n_subtypes=n_subtypes,
             iterations = n_iter, n_shuffle = n_shuffle, n_subtype_shuffle = n_subtype_shuffle, prior_n=prior_n, prior_v=prior_v, rng=rng,
+            burn_in=burn_in, with_labels=with_labels
             # theta_phi=theta_phi_matrix
         )
-        # accepted_orders, log_likelihoods, final_theta_phi, final_stage_post, final_subtype_prior, final_stage_prior, final_subtype_post = metropolis_hastings( 
-        #     data_matrix=data_matrix, diseased_arr=diseased_arr, n_subtypes=n_subtypes,
-        #     iterations = n_iter, burn_in=burn_in, n_shuffle = n_shuffle, n_subtype_shuffle = n_subtype_shuffle, prior_n=prior_n, prior_v=prior_v, rng=rng,
-        #     # theta_phi=theta_phi_matrix
-        # )
+   
     except Exception as e:
         logging.error(f"Error in Metropolis-Hastings algorithm: {e}")
         raise
 
-    # # --- FIX: Apply Burn-in and Thinning ---
-    # post_burn_in_orders = accepted_orders[burn_in::thinning]
-    # post_burn_in_likelihoods = log_likelihoods[burn_in::thinning]
+    if save_plots:
+        heatmap_folder = os.path.join(output_dir, "heatmaps")
+        os.makedirs(heatmap_folder, exist_ok=True)
+        traceplot_folder = os.path.join(output_dir, "traceplots")
+        os.makedirs(traceplot_folder, exist_ok=True)
 
-    # # Now, use these sliced lists for all subsequent analysis
-    # if len(post_burn_in_likelihoods) <= 0:
-    #     raise ValueError("No samples left after burn-in and thinning. Check your parameters.")
+        if with_labels:
+            all_orders += 1 # make sure all actual orders start from 1, not 0
 
-    # # Find the best order from the POST-BURN-IN samples
-    # best_idx = np.argmax(post_burn_in_likelihoods)
-    # best_order_matrix = post_burn_in_orders[best_idx]
-
-    mapping = None 
-    remapped_best_order_matrix = best_order_matrix
-    tau = None 
-    subtype_assignment_accuracy = None
-    subtype_assignment_accuracy_max = None 
-    if true_order_matrix is not None:
-        n = len(best_order_matrix) # n_subtypes
-        dist = np.zeros((n, n))
-
-        for i in range(n):
-            for j in range(n):
-                dist[i,j]= utils.normalized_kendalls_tau_distance(best_order_matrix[i], np.array(true_order_matrix[j]))
-                # # normalized kendall's tau distance
-                # dist[i, j] = (1 - tau)/2  # smaller dist = better match
-        
-        # This finds the best matching: estimated_indices[i] -> true_indices[i]
-        estimated_indices, true_indices = linear_sum_assignment(dist)
-
-        # Calculate the matched Kendall's Tau
-        tau = dist[estimated_indices, true_indices].mean()
-
-        mapping = dict(zip(estimated_indices, true_indices))
-
-        remapped_best_order_matrix = [best_order_matrix[mapping[i]] for i in range(n)]
-    
-    # subtype assignment (only for diseased participants)
-    # ml_subtypes = np.argmax(best_subtype_post[diseased_mask], axis=1).astype(int)
-    probs = best_subtype_post[diseased_mask]  # shape: (n_diseased, n_subtypes)
-    ml_subtypes = np.array([
-        rng.choice(probs.shape[1], p=row/row.sum())  
-        for row in probs], dtype=int)
-    ml_subtypes_max = np.argmax(probs, axis=1).astype(int)
-    if true_subtype_assignments is not None and mapping is not None:
-        #  (only for diseased participants)
-        true_subtype_assignments = np.array(true_subtype_assignments)[diseased_mask]
-        subtype_assignment_accuracy = adjusted_rand_score(true_subtype_assignments, ml_subtypes)
-        subtype_assignment_accuracy_max = adjusted_rand_score(true_subtype_assignments, ml_subtypes_max)
-        # remapped_ml_subtypes = np.array([mapping[x] for x in ml_subtypes])
-        # subtype_assignment_accuracy = float(cohen_kappa_score(remapped_ml_subtypes, true_subtype_assignments))
-    
-    end_time = time.time()
-    results = {
-        "runtime": end_time - start_time,
-        'healthy_ratio': healthy_ratio,
-        "max_log_likelihood": float(max_log_likelihood),
-        "kendalls_tau": tau,
-        'subtype_assignment_accuracy': subtype_assignment_accuracy,
-        'subtype_assignment_accuracy_max': subtype_assignment_accuracy_max,
-        'n_subtypes': int(n_subtypes),
-        'ml_orders': remapped_best_order_matrix,
-        'true_orders': true_order_matrix
-    }
-    
-    if save_results:
-        # Save results
         try:
-            with open(f"{results_folder}/{fname_prefix}{fname}_results.json", "w") as f:
-                json.dump(convert_np_types(results), f, indent=4)
+            save_traceplot(
+                all_loglikes,
+                folder_name=traceplot_folder,
+                file_name=f"{fname_prefix}{fname}_traceplot",
+                title=f"Traceplot of Log Likelihoods"
+            )
         except Exception as e:
-            logging.error(f"Error writing results to file: {e}")
+            logging.error(f"Error generating trace plot: {e}")
             raise
-        logging.info(f"Results saved to {results_folder}/{fname_prefix}{fname}_results.json")
 
-    # # Clean up logging handlers
-    # logger = logging.getLogger()
-    # for handler in logger.handlers[:]:
-    #     handler.close()
-    #     logger.removeHandler(handler)
+        for t in range(n_subtypes):
+            try:
+                save_heatmap(
+                    all_orders[:,t, :],
+                    burn_in,
+                    thinning,
+                    folder_name=heatmap_folder,
+                    file_name=f"{fname_prefix}{fname}_subtype{t+1}_heatmap",
+                    title=f"Ordering Result of Subtype {t+1}",
+                    biomarker_names=biomarker_names,
+                    best_order=best_order_matrix[t]
+                )
+            except Exception as e:
+                logging.error(f"Error generating heatmap: {e}")
+                raise
+ 
+    if obtain_results:
 
-    return results
+        tau = None 
+        subtype_acc = None
+
+        if with_labels:
+            stage_post, subtype_post = utils.new_posteriors_with_em(
+                data_matrix=data_matrix,
+                # if with labels, since participant stage starts from 0, the order of biomarkers should start from 1!
+                new_order=best_order_matrix + 1, # (n_subtypes, n_disease_stages)
+                best_theta_phi=best_theta_phi, # best_theta_phi (N, 4)
+                rng=rng,
+            )
+        else:
+            stage_post, subtype_post = best_stage_post, best_subtype_post
+
+        # ml_subtype
+        ml_subtype = np.argmax(subtype_post, axis=1).astype(int) # shape: (n_participants, n_subtypes)
+
+        marginal_stage_post = np.zeros((n_participants, n_stages), dtype=np.float64)
+        for p in range(n_participants):
+            for s in range(n_subtypes):
+                # add P(k | p, s) * P(s | p) into participant p’s stage distribution
+                marginal_stage_post[p, :] += stage_post[p, s, :] * subtype_post[p, s]
+
+        # Discrete label (MAP)
+        # ml_stage
+        ml_stage = np.argmax(marginal_stage_post, axis=1)
+
+        mean_stage_healthy = np.mean(ml_stage[healthy_mask])
+        
+        if true_order_matrix is not None and true_subtype_assignments is not None:     
+            tau, subtype_acc, _ = utils.get_final_metrics(
+                true_order_matrix=np.array(true_order_matrix),
+                best_order_matrix=best_order_matrix,
+                true_subtype_assignments=np.array(true_subtype_assignments),
+                ml_subtype=ml_subtype,
+                ml_stage=ml_stage,
+                diseased_mask=diseased_mask
+            )
+
+        end_time = time.time()
+        results = {
+            "with_labels": int(with_labels),
+            "burn_in": burn_in,
+            'thinning': thinning,
+            "runtime": end_time - start_time,
+            'healthy_ratio': healthy_ratio,
+            "max_log_likelihood": max_log_likelihood,
+            "kendalls_tau": tau,
+            'subtype_acc': subtype_acc,
+            'n_subtypes': n_subtypes,
+            'mean_stage_healthy': mean_stage_healthy,
+            'ml_subtype': ml_subtype
+        }
+        if save_results:
+            # Save results
+            try:
+                with open(f"{results_folder}/{fname_prefix}{fname}_results.json", "w") as f:
+                    json.dump(convert_np_types(results), f, indent=4)
+            except Exception as e:
+                logging.error(f"Error writing results to file: {e}")
+                raise
+            logging.info(f"Results saved to {results_folder}/{fname_prefix}{fname}_results.json")
+    else:
+        results = None    
+
+    return results, all_orders, all_loglikes, best_order_matrix, biomarker_names, ml_stage, ml_subtype
