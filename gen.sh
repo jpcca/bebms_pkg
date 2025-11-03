@@ -5,7 +5,7 @@ set -e  # stop if any command fails
 pip install -e .
 
 # clean up old data
-rm -rf pysubebm/test/my_data
+rm -rf bebms/test/my_data
 
 # run generator from root
-python3 pysubebm/test/gen.py
+python3 bebms/test/gen.py

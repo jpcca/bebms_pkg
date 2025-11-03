@@ -1,8 +1,8 @@
-N_VARIANTS: 1
+N_VARIANTS: 2
 JS: [300]
 RS: [0.25]
-SUSTAIN_FOLDER: 'pysubebm/test/sustain_results/results'
-MY_FOLDER: 'pysubebm/test/algo_results/results'
+SUSTAIN_FOLDER: 'bebms/test/sustain_results/results'
+MY_FOLDER: 'bebms/test/algo_results/results'
 TEMPERATURE_LO: 0.01
 TEMPERATURE_HI: 0.35
 N_SUB_LO: 2

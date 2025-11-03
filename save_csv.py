@@ -21,12 +21,13 @@ if __name__ == '__main__':
 
     cwd = os.getcwd()
     print("Current Working Directory:", cwd)
-    data_dir = f"{cwd}/pysubebm/test/my_data"
+    data_dir = f"{cwd}/bebms/test/my_data"
     data_files = os.listdir(data_dir) 
 
     all_results = []
     for data_file in data_files:
         fname = data_file.replace('.csv', '')
+        print(fname)
         J, R, E, M = extract_components(fname)
         curr_result = {
             'J': J, 
@@ -41,17 +42,17 @@ if __name__ == '__main__':
         with open(my_res, 'r') as f:
             subebm_data = json.load(f)
         curr_result['subebm_tau'] = subebm_data['kendalls_tau']
-        curr_result['subebm_subtype_acc'] = subebm_data['subtype_assignment_accuracy']
+        # curr_result['subebm_subtype_acc'] = subebm_data['subtype_acc']
         curr_result['n_subtypes'] = subebm_data['n_subtypes']
         curr_result['sustain_tau'] = sustain_data['tau']
-        curr_result['sustain_subtype_acc'] = sustain_data['subtype_acc']
+        # curr_result['sustain_subtype_acc'] = sustain_data['subtype_acc']
         all_results.append(curr_result)
     
     df = pd.DataFrame(all_results)
     print('SUBEBM TAU AVG:', df['subebm_tau'].mean())
-    print('SUBEBM SUBTYPE ACC AVG:', df['subebm_subtype_acc'].mean())
+    # print('SUBEBM SUBTYPE ACC AVG:', df['subebm_subtype_acc'].mean())
     print('SUSTAIN TAU AVG:', df['sustain_tau'].mean())
-    print('SUSTAIN SUBTYPE ACC AVG:', df['sustain_subtype_acc'].mean())
+    # print('SUSTAIN SUBTYPE ACC AVG:', df['sustain_subtype_acc'].mean())
     df.to_csv('all_results.csv', index=False)
 
         

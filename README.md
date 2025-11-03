@@ -4,15 +4,78 @@
 ## Installation
 
 ```bash
+pip install bebms=
+```
+
+or git clone this project, and then
+
+```bash
+pip install -e .
+```
+
+
+## Generate synthetic data
+
+Git clone this repository, and at the root, run
+
+```bash
+bash gen.sh
+```
+
+The generated data will be found at `[bebms/test/my_data](bebms/test/my_data/)` as `.csv` files. 
+
+The parameters are pre-set and can be found at `[bebms/data/params.json](bebms/data/params.json)`. You can modify the parameters by modifying the `json` file. 
+
+You can also change parameters in `config.toml` to adjust what data to generate.
+
+## Run `bebms` algorithm 
+
+To run `bebms`, after git cloning this repository, at the root, run 
+
+```bash
+bash test.sh
+```
+
+You can check `[bebms/test/test.py](bebms/test/test.py)` to learn how to use the `[run_bebms](bebms/run.py)` function. 
+
+The results will be saved in the folder of `[bebms/test/algo_results](bebms/test/algo_results/)`.
+
+### Compare with SuStaIn
+
+You can also compare the results of `bebms` with those of SuStaIn.
+
+First, you need to install packages required by SuSta
+
+```bash
 pip install git+https://github.com/noxtoby/awkde
 pip install git+https://github.com/hongtaoh/ucl_kde_ebm
 pip install git+https://github.com/hongtaoh/pySuStaIn
 ```
 
+Then, at the root of this repository, run 
 
 ```bash
-pip install -e .
+bash test_sustain.sh
 ```
+
+You can check details at `[bebms/test/test_sustain.py](bebms/test/test_sustain.py)`.
+
+The results will be saved in the folder of `[bebms/test/sustain_results](bebms/test/sustain_results/)`.
+
+### Save comparison results
+
+You can save the results of `bebms` along with those of SuStaIn by running at the root:
+
+```bash
+python3 save_csv.py
+```
+
+The results will be found at the root as `all_results.csv`. 
+
+## Use your own data
+
+You can use your own data. But make sure that your data follows the format as in data in `[bebms/data/samples](bebms/data/samples/)`.
+
 
 ## Changelogs
 
@@ -47,5 +110,8 @@ pip install -e .
 - 2025-09-08 (V 0.3.5.8)
     - Added `ml_subtype` in output results. 
     - Added all_logs to the output returned in `run.py`.
-- 2025-09-21 (V 0.3.8)
+- 2025-09-21 (V 0.3.9)
     - Removed `iteration >= burn_in` when updating best_*. 
+- 2025-11-03 (V 0.4.1)
+    - Changed the package name to `bebms`. 
+    - Edited README. 

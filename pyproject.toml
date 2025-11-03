@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pysubebm"
-version = "0.3.8"
-description = "Subtype Event-Based Modeling for Disease Progression"
+name = "bebms"
+version = "0.4.1"
+description = "Bayesian Event-Based Model for Disease Subtype and Stage Inference"
 readme = "README.md"
 authors = [
   {name = "Hongtao Hao and Joseph Austerweil", email = "hongtaoh@cs.wisc.edu"}
@@ -27,7 +27,7 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/hongtaoh/pysubebm"
+Homepage = "https://github.com/hongtaoh/bebms"
 
 [tool.setuptools.packages.find]
 
