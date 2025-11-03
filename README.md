@@ -22,9 +22,9 @@ Git clone this repository, and at the root, run
 bash gen.sh
 ```
 
-The generated data will be found at `[bebms/test/my_data](bebms/test/my_data/)` as `.csv` files. 
+The generated data will be found at [`bebms/test/my_data`](bebms/test/my_data/) as `.csv` files. 
 
-The parameters are pre-set and can be found at `[bebms/data/params.json](bebms/data/params.json)`. You can modify the parameters by modifying the `json` file. 
+The parameters are pre-set and can be found at [`bebms/data/params.json`](bebms/data/params.json). You can modify the parameters by modifying the `json` file. 
 
 You can also change parameters in `config.toml` to adjust what data to generate.
 
@@ -36,9 +36,9 @@ To run `bebms`, after git cloning this repository, at the root, run
 bash test.sh
 ```
 
-You can check `[bebms/test/test.py](bebms/test/test.py)` to learn how to use the `[run_bebms](bebms/run.py)` function. 
+You can check [`bebms/test/test.py`](bebms/test/test.py) to learn how to use the [`run_bebms`](bebms/run.py) function. 
 
-The results will be saved in the folder of `[bebms/test/algo_results](bebms/test/algo_results/)`.
+The results will be saved in the folder of [`bebms/test/algo_results`](bebms/test/algo_results/).
 
 ### Compare with SuStaIn
 
@@ -58,9 +58,9 @@ Then, at the root of this repository, run
 bash test_sustain.sh
 ```
 
-You can check details at `[bebms/test/test_sustain.py](bebms/test/test_sustain.py)`.
+You can check details at [`bebms/test/test_sustain.py`](bebms/test/test_sustain.py).
 
-The results will be saved in the folder of `[bebms/test/sustain_results](bebms/test/sustain_results/)`.
+The results will be saved in the folder of [`bebms/test/sustain_results`](bebms/test/sustain_results/).
 
 ### Save comparison results
 
@@ -74,7 +74,7 @@ The results will be found at the root as `all_results.csv`.
 
 ## Use your own data
 
-You can use your own data. But make sure that your data follows the format as in data in `[bebms/data/samples](bebms/data/samples/)`.
+You can use your own data. But make sure that your data follows the format as in data in [`bebms/data/samples`](bebms/data/samples/).
 
 
 ## Changelogs
