@@ -4,7 +4,7 @@
 ## Installation
 
 ```bash
-pip install bebms=
+pip install bebms
 ```
 
 or git clone this project, and then
@@ -220,3 +220,5 @@ results, all_orders, all_loglikes, best_order_matrix, biomarker_names, ml_stage,
 - 2025-11-03 (V 0.4.1)
     - Changed the package name to `bebms`. 
     - Edited README. 
+- 2025-11-06 (V 0.4.2)
+    - Updated README. 
