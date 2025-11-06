@@ -706,30 +706,44 @@ def generate(
 
                     if len(set(df['diseased'])) != 2:
                         raise ValueError('zero length cluster!')
-
-                    diseased_dict_old = dict(zip(df.participant, df.diseased))
-                    # long to wide
-                    dff = df.pivot(
-                        index='participant', columns='biomarker', values='measurement')
-                    # make sure the data_matrix is in this order
-                    # This is very important. 
-                    dff = dff.reindex(columns=biomarker_names, level=1) 
-                    # remove column name (biomarker) to clean display
-                    dff.columns.name = None      
-                    # bring 'participant' back as a column 
-                    # 'participant' is OLD id here
-                    dff.reset_index(inplace=True, drop=False) 
-                    # attach diseased using OLD ids
-                    dff['diseased'] = dff['participant'].map(diseased_dict_old)
-                    # sort by OLD id so stage mapping stays aligned
-                    dff.sort_values(by='participant', inplace=True)
+                    
+                    if not keep_all_cols:
+                        # ----- WIDE FORMAT (current behavior) -----
+                        diseased_dict_old = dict(zip(df.participant, df.diseased))
+                        # affected_dict_old = dict(zip(df.participant, df.affected))
+                        # long to wide
+                        dff = df.pivot(
+                            index='participant', columns='biomarker', values='measurement')
+                        # make sure the data_matrix is in this order
+                        # This is very important. 
+                        dff = dff.reindex(columns=biomarker_names, level=1) 
+                        # remove column name (biomarker) to clean display
+                        dff.columns.name = None      
+                        # bring 'participant' back as a column 
+                        # 'participant' is OLD id here
+                        dff.reset_index(inplace=True, drop=False) 
+                        # attach diseased using OLD ids
+                        dff['diseased'] = dff['participant'].map(diseased_dict_old)
+                        # sort by OLD id so stage mapping stays aligned
+                        dff.sort_values(by='participant', inplace=True)
+                    else:
+                        # ----- LONG FORMAT (preserve all columns) -----
+                        # Just keep df as is; we only need to reassign participant IDs
+                        dff = df.copy()
+                        dff.sort_values(by='participant', inplace=True)
 
                     # assign NEW consecutive participant ids
+                    # Get unique participants in correct stable order
+                    old_unique = pd.unique(df['participant'])
                     new_ids = np.arange(new_participant_start, new_participant_start + len(dff))
-                    old_to_new = dict(zip(dff['participant'].to_numpy(), new_ids))
+                    old_to_new = dict(zip(old_unique, new_ids))
                     dff['participant'] = dff['participant'].map(old_to_new)
 
-                    dff['stage_assignments'] = subtype_dict[filename]['true_stages']
+                    # --- Assign stage + subtype correctly (works for both formats!) ---
+                    stage_map = dict(zip(df['participant'].unique(), subtype_dict[filename]['true_stages']))
+                    dff['stage_assignments'] = dff['participant'].map(stage_map)
+                    # previously, i had this, but not working for long format
+                    # dff['stage_assignments'] = subtype_dict[filename]['true_stages']
                     dff['subtype_assignments'] = subtype_idx
 
                     # append to FULL_DF 

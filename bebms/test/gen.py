@@ -72,7 +72,7 @@ if __name__ == '__main__':
             num_of_datasets_per_combination=config['N_VARIANTS'],
             output_dir=OUTPUT_DIR,
             seed=random_state,
-            keep_all_cols = False,
+            keep_all_cols = True,
             temperature_lo=config['TEMPERATURE_LO'],
             temperature_hi=config['TEMPERATURE_HI'],
             n_sub_lo=config['N_SUB_LO'],

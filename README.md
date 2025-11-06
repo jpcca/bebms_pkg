@@ -220,5 +220,6 @@ results, all_orders, all_loglikes, best_order_matrix, biomarker_names, ml_stage,
 - 2025-11-03 (V 0.4.1)
     - Changed the package name to `bebms`. 
     - Edited README. 
-- 2025-11-06 (V 0.4.2)
+- 2025-11-06 (V 0.4.3)
     - Updated README. 
+    - Allowed `keep_all_cols=True` when generating synthetic data. Will use the long format in that situation. 
