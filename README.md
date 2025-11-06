@@ -13,15 +13,15 @@ or git clone this project, and then
 pip install -e .
 ```
 
-
 ## Generate synthetic data
 
-Git clone this repository, and at the root, run
+If you need quick examples of data usable for `bebms` for testing purposes, you can use sample data available at [`bebms/data/samples`](bebms/data/samples/).
+
+If you need to generate synthetic data: Git clone this repository, and at the root, run
 
 ```bash
 bash gen.sh
 ```
-
 The generated data will be found at [`bebms/test/my_data`](bebms/test/my_data/) as `.csv` files. 
 
 The parameters are pre-set and can be found at [`bebms/data/params.json`](bebms/data/params.json). You can modify the parameters by modifying the `json` file. 
@@ -30,7 +30,7 @@ You can also change parameters in `config.toml` to adjust what data to generate.
 
 ## Run `bebms` algorithm 
 
-To run `bebms`, after git cloning this repository, at the root, run 
+After git cloning this repository and generating syntheti cdata, to run `bebms`, at the root, run 
 
 ```bash
 bash test.sh
@@ -75,6 +75,111 @@ The results will be found at the root as `all_results.csv`.
 ## Use your own data
 
 You can use your own data. But make sure that your data follows the format as in data in [`bebms/data/samples`](bebms/data/samples/).
+
+### Find the optimal number of subtypes
+
+After you have your own data, the first step is to find the optimal number of subtypes. 
+
+```py
+import pandas as pd 
+import numpy as np 
+import matplotlib.pyplot as plt 
+from bebms.cross_validate import cross_validatation
+import bebms.utils as utils
+
+data_file = 'path/to/your/data.csv'
+
+cvic_scores, optimal_n = cross_validatation(
+    data_file=data_file,
+    iterations=10000, # how many MCMC iterations to run. 
+    n_shuffle=2, # how many biomarkers to shuffle in each subtype; recommend 2.
+    n_subtype_shuffle=2, # how many subtypes to shuffle; recommend 2.
+    burn_in=200, 
+    prior_n=1, # Strength of the prior belief in prior estimate of the mean (μ), set to 1 as default
+    prior_v=1, # # Prior degrees of freedom, influencing the certainty of prior estimate of the variance (σ²), set to 1 as default
+    max_n_subtypes=6, # the max number of subtypes
+    N_FOLDS=5, # K-fold validation. Choose K here. 
+    seed=42, # random seed. 
+    with_labels=True # whether to assume the knowledge of diagnosis labels, i.e., healthy or not. 
+)
+
+# to get the optimal number of subtypes
+ml_n_subtypes = utils.choose_optimal_subtypes(cvic_scores)
+print(ml_n_subtypes)
+
+# Summarize results
+df_cvic = pd.DataFrame({
+    "n_subtypes": np.arange(1, 7),
+    "CVIC": cvic_scores
+})
+print(df_cvic)
+
+# Plot CVIC curve
+plt.figure(figsize=(6,4))
+plt.plot(df_cvic["n_subtypes"], df_cvic["CVIC"], marker="o")
+plt.xlabel("Number of subtypes")
+plt.ylabel("CVIC (lower is better)")
+plt.title("Cross-validated model selection (BPEBM-S)")
+plt.grid(True)
+plt.show()
+```
+
+### Run BEBMS
+
+After you know the optimal number of subtypes, you can start running `bebms` on your dataset. 
+
+It's ideal if you can try different random seeds and see which one leads to the highest data log likelihood:
+
+```py
+import pandas as pd 
+import numpy as np 
+from bebms import cross_validatation, run_bebms
+from collections import defaultdict, Counter
+
+data_file = 'path/to/your/data.csv'
+
+dic = defaultdict(float)
+for _ in range(10): # try 10 random seeds; modify the number as you wish. 
+    x = np.random.randint(1, 2**32 - 1)
+    results = run_bebms(
+        data_file= data_file,
+        n_subtypes=3, # that is the optimal number of subtypes you identified above
+        output_dir='bebms_results',
+        n_iter=20000, # number of MCMC iterations.
+        n_shuffle=2, 
+        n_subtype_shuffle=2,
+        burn_in=200,
+        thinning=1,
+        seed = x, 
+        obtain_results=True, # to get the results
+        save_results=False, # but no need to save the results; why? because here we only need to get the data likelihood, and no need to save the results
+        with_labels=True, # we assume the knowledge of diagnosis labels
+        save_plots=False # we do not save plots
+    )
+    dic[x] = results['max_log_likelihood']
+
+# By checking dic, you can know which random seed led to the highest data log likelihood
+
+# Finally, you can run bebms to get the results. 
+seed = 12345 # Suppose that is the optimal seed you identified above
+
+results, all_orders, all_loglikes, best_order_matrix, biomarker_names, ml_stage, ml_subtype = run_bebms(
+        data_file= data_file,
+        n_subtypes=3,
+        output_dir='bebms_results', # where results will be saved into
+        n_iter=20000,
+        n_shuffle=2,
+        n_subtype_shuffle=2,
+        burn_in=200,
+        thinning=1,
+        seed = seed,
+        obtain_results=True,
+        save_results=True, # Now we need to save results
+        with_labels=True,
+        save_plots=True # Now we need save the result plots. 
+    )
+```
+
 
 
 ## Changelogs
