@@ -1,5 +1,20 @@
-# `pysubebm`
+# `bebms`
 
+This repository contains the package codes for the ML4H (2025) submission of *Bayesian Event-Based Model for Disease Subtype and Stage Inference*.
+
+## Cite this paper or package 
+
+```
+@inproceedings{Hao2025JointProgression,
+  author    = {Hongtao Hao and Joseph L. Austerweil},
+  title     = {Bayesian Event-Based Model for Disease Subtype and Stage Inference},
+  booktitle = {Proceedings of the 5th Machine Learning for Health Symposium},
+  volume    = {297},
+  pages     = {??--??}, % Page numbers are not provided now, will add later. 
+  year      = {2025},
+  publisher = {PMLR},
+}
+```
 
 ## Installation
 
@@ -28,6 +43,12 @@ The parameters are pre-set and can be found at [`bebms/data/params.json`](bebms/
 
 You can also change parameters in `config.toml` to adjust what data to generate.
 
+### Details
+
+You can look into the [`gen.py`](bebms/test/gen.py) and [`generate_data.py`](bebms/generate_data.py) for more details. By default, `keep_all_cols = False` and the result is the data in wide format. 
+
+You can change it to `keep_all_cols = False`, and the data will be in long (tidy) format. This is because the wide format cannot contain the `affected` column which is regarding to biomarker, rather than each participant. 
+
 ## Run `bebms` algorithm 
 
 After git cloning this repository and generating syntheti cdata, to run `bebms`, at the root, run 
@@ -44,7 +65,7 @@ The results will be saved in the folder of [`bebms/test/algo_results`](bebms/tes
 
 You can also compare the results of `bebms` with those of SuStaIn.
 
-First, you need to install packages required by SuSta
+First, you need to install packages required by SuStaIn:
 
 ```bash
 pip install git+https://github.com/noxtoby/awkde
@@ -100,7 +121,8 @@ cvic_scores, optimal_n = cross_validatation(
     max_n_subtypes=6, # the max number of subtypes
     N_FOLDS=5, # K-fold validation. Choose K here. 
     seed=42, # random seed. 
-    with_labels=True # whether to assume the knowledge of diagnosis labels, i.e., healthy or not. 
+    with_labels=True, # whether to assume the knowledge of diagnosis labels, i.e., healthy or not. 
+    z_score_norm=False # whether to use z score normalization for all biomarker data. default is false
 )
 
 # to get the optimal number of subtypes
@@ -119,7 +141,7 @@ plt.figure(figsize=(6,4))
 plt.plot(df_cvic["n_subtypes"], df_cvic["CVIC"], marker="o")
 plt.xlabel("Number of subtypes")
 plt.ylabel("CVIC (lower is better)")
-plt.title("Cross-validated model selection (BPEBM-S)")
+plt.title("Cross-validated model selection (BEBMS)")
 plt.grid(True)
 plt.show()
 ```
@@ -154,7 +176,8 @@ for _ in range(10): # try 10 random seeds; modify the number as you wish.
         obtain_results=True, # to get the results
         save_results=False, # but no need to save the results; why? because here we only need to get the data likelihood, and no need to save the results
         with_labels=True, # we assume the knowledge of diagnosis labels
-        save_plots=False # we do not save plots
+        save_plots=False, # we do not save plots
+        z_score_norm=False # whether to use z score normalization for all biomarker data. default is false
     )
     dic[x] = results['max_log_likelihood']
 
@@ -180,6 +203,9 @@ results, all_orders, all_loglikes, best_order_matrix, biomarker_names, ml_stage,
     )
 ```
 
+### Z score normalization
+
+The default of the functions of `run_bebms` and `cross_validation` is `z_score_norm = False`. But you can try `z_score_norm = True` and see which results are more plausible. This might require domain expertise. 
 
 
 ## Changelogs
@@ -223,3 +249,5 @@ results, all_orders, all_loglikes, best_order_matrix, biomarker_names, ml_stage,
 - 2025-11-06 (V 0.4.3)
     - Updated README. 
     - Allowed `keep_all_cols=True` when generating synthetic data. Will use the long format in that situation. 
+- 2025-11-07 (V 0.4.5)
+    - Now `z_score_norm` is added in `run.py` and `cross_validation.py` to allow users to do z score normalization for the data matrix.

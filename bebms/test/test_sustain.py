@@ -11,6 +11,7 @@ import time
 import bebms.utils as utils
 import numpy as np
 from sklearn.metrics import cohen_kappa_score, adjusted_rand_score
+from sklearn.preprocessing import StandardScaler
 
 from functools import partialmethod
 import tqdm 
@@ -21,6 +22,7 @@ os.environ["PROGRESS_BAR"] = "0"
 warnings.filterwarnings("ignore")
 
 start_time = time.time()
+scaler = StandardScaler()
 
 sustainType = 'mixture_GMM'  # or 'mixture_KDE', 'mixture_GMM'
 
@@ -57,6 +59,10 @@ for data_file in data_files[:3]:
     biomarker_labels = list(df.columns)[:-1]
     data_matrix = df.to_numpy()
     data = data_matrix[:, :-1].astype(np.float64)
+    
+    # Z SCORE NORM:
+    # data = scaler.fit_transform(data)
+
     target = data_matrix[:, -1].astype(np.int64)
     diseased_mask = (target == 1)
 
@@ -78,7 +84,7 @@ for data_file in data_files[:3]:
     # parameter setting 
     N_startpoints = 25  # Number of starting points for optimization
     N_S_max = n_subtypes  # Maximum number of subtypes (since you mentioned 2 orderings)
-    N_iterations_MCMC = 20000  # Number of MCMC iterations
+    N_iterations_MCMC = 3000  # Number of MCMC iterations
     dataset_name = fname
     use_parallel_startpoints = False
 

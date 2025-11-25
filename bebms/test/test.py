@@ -41,6 +41,7 @@ for data_file in data_files[:10]:
 
     run_bebms(
         data_file= os.path.join(data_dir, data_file),
+        z_score_norm=False,
         n_subtypes=n_subtypes,
         true_order_matrix=true_order_matrix,
         true_subtype_assignments=true_subtype_assignments,

@@ -33,6 +33,7 @@ from scipy.stats import mode
 import re 
 import os 
 import logging 
+import pandas as pd 
 from scipy.optimize import linear_sum_assignment
 from sklearn.metrics import adjusted_rand_score
 
@@ -245,14 +246,27 @@ def get_initial_theta_phi_estimates(
     # --- End of Fix ---
 
     for bm in range(N):
+        # biomarker data across all participants
         bm_measurements = data_matrix[:, bm]
-        # Add a check here for NaNs just in case, it's good practice
-        if np.any(np.isnan(bm_measurements)):
-             raise ValueError(f"NaN value detected in biomarker {bm} before calling KMeans.")
+
+        valid_mask = ~np.isnan(bm_measurements)
+        valid_indices = np.where(valid_mask)[0]
+        bm_measurements_valid = bm_measurements[valid_mask]
+
+        # Convert to local index space
+        # Step 1: keep only participants who have valid data
+        diseased_ids_valid_global = np.intersect1d(diseased_ids, valid_indices)
+        non_diseased_ids_valid_global = np.intersect1d(non_diseased_ids, valid_indices)
+
+        # Step 2: convert global indices → local indices
+        mapping = {g: i for i, g in enumerate(valid_indices)}
+        diseased_ids_valid = np.array([mapping[g] for g in diseased_ids_valid_global], dtype=np.int64)
+        non_diseased_ids_valid = np.array([mapping[g] for g in non_diseased_ids_valid_global], dtype=np.int64)
+
         theta_measurements, phi_measurements, _  = get_two_clusters_with_kmeans(
-            bm_measurements = bm_measurements, 
-            diseased_ids = diseased_ids, 
-            non_diseased_ids = non_diseased_ids,
+            bm_measurements = bm_measurements_valid, 
+            diseased_ids = diseased_ids_valid, 
+            non_diseased_ids = non_diseased_ids_valid,
             rng=rng
         )
         # Use MLE to calculate the fallback (also to provide the m0 and s0_sq)
@@ -267,7 +281,6 @@ def get_initial_theta_phi_estimates(
             fallback_params, prior_n, prior_v)
         estimates[bm] = np.array([theta_mean, theta_std, phi_mean, phi_std])
     return estimates
-
 
 @njit
 def compute_theta_phi_biomarker_conjugate_priors(
@@ -391,7 +404,6 @@ def estimate_params_exact(
 
     return mu_estimation, std_estimation
 
-
 @njit
 def update_theta_phi_estimates_with_labels(
     n_participants: int,
@@ -467,6 +479,12 @@ def update_theta_phi_estimates_with_labels(
         # We now use the FULL set of measurements for both theta and phi,
         # but with the aggregated soft-assignment weights we just calculated.
         theta_phi_current_biomarker = theta_phi_current[bm_idx, :]
+
+        # Deal with NaN values:
+        valid_mask = ~np.isnan(bm_measurements)
+        theta_weights = theta_weights * valid_mask # if nan, weights become zero
+        phi_weights   = phi_weights * valid_mask
+
         updated_params[bm_idx, :] = compute_theta_phi_biomarker_conjugate_priors(
             bm_measurements, theta_weights,  # theta_measurements and its weights
             bm_measurements, phi_weights,    # phi_measurements and its weights
@@ -548,6 +566,12 @@ def update_theta_phi_estimates(
         # We now use the FULL set of measurements for both theta and phi,
         # but with the aggregated soft-assignment weights we just calculated.
         theta_phi_current_biomarker = theta_phi_current[bm_idx, :]
+        
+        # Deal with NaN values:
+        valid_mask = ~np.isnan(bm_measurements)
+        theta_weights = theta_weights * valid_mask # if nan, weights become zero
+        phi_weights   = phi_weights * valid_mask
+
         updated_params[bm_idx, :] = compute_theta_phi_biomarker_conjugate_priors(
             bm_measurements, theta_weights,  # theta_measurements and its weights
             bm_measurements, phi_weights,    # phi_measurements and its weights
@@ -894,13 +918,14 @@ def _compute_ln_likelihood_core(measurements, mus, stds):
     ln_likelihood = 0.0
     log_two_pi = np.log(2 * np.pi)
     for i in range(len(measurements)):
+        m = measurements[i]
         var = stds[i] ** 2
-        diff = measurements[i] - mus[i]
+        diff = m - mus[i]
         # likelihood *= np.exp(-diff**2 / (2 * var)) / np.sqrt(2 * np.pi * var)
         # Log of normal PDF: ln(1/sqrt(2π*var) * exp(-diff²/2var))
         # = -ln(sqrt(2π*var)) - diff²/2var
         ln_likelihood += (-0.5 * (log_two_pi + np.log(var)) -
-                          diff**2 / (2 * var))
+                        diff**2 / (2 * var))
     return ln_likelihood
 
 @ njit
@@ -934,6 +959,7 @@ def compute_ln_likelihood(
             stds[i] = float(theta_phi[i, 3])
 
     # Apply mask after mus and stds are computed
+    # THIS MAKES SURE THAT NAN VALUES ARE IGNORED AND WON'T CAUSE ANY ISSUES
     valid_mask = (~np.isnan(p_measurements)) & (~np.isnan(mus)) & (stds > 0)
     p_measurements = p_measurements[valid_mask]
     mus = mus[valid_mask]

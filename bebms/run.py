@@ -8,6 +8,7 @@ import numpy as np
 import sys 
 import bebms.utils as utils
 from .viz import save_heatmap, save_traceplot
+from sklearn.preprocessing import StandardScaler
 
 # Import utility functions
 from .utils import (extract_fname, cleanup_old_files, convert_np_types)
@@ -17,6 +18,7 @@ from .mh import metropolis_hastings
 def run_bebms(
     data_file: str,
     n_subtypes:int,
+    z_score_norm: Optional[bool] = False,
     true_order_matrix: Optional[np.ndarray] = None,
     true_subtype_assignments: Optional[np.ndarray] = None, 
     output_dir: Optional[str]=None,
@@ -122,6 +124,9 @@ def run_bebms(
     n_stages = n_biomarkers + 1 # all stages include 0
     logging.info(f"Number of biomarkers: {n_biomarkers}")
     data_matrix = data.to_numpy()
+    if z_score_norm:
+        scaler = StandardScaler()
+        data_matrix = scaler.fit_transform(data_matrix)
     non_diseased_ids = np.where(diseased_arr == 0)[0]
     healthy_ratio = len(non_diseased_ids)/n_participants
     diseased_mask = (diseased_arr == 1)

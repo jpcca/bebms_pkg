@@ -6,6 +6,8 @@ import bebms.utils as utils
 from sklearn.model_selection import StratifiedKFold
 from tqdm.auto import tqdm # 1. Import tqdm# Import algorithms
 from .mh import metropolis_hastings
+from sklearn.preprocessing import StandardScaler
+
 
 # The input is the data, output is the optimal number of subtypes
 # basic idea: for each n_subtype (1-5), use N_FOLDS (5-10 is appropriate)
@@ -27,6 +29,7 @@ def cross_validatation(
     N_FOLDS:int, # 5-10
     seed:int=53,
     with_labels:bool=True,
+    z_score_norm:Optional[bool] = False,
 ) -> Tuple[np.ndarray, int]:
     rng = np.random.default_rng(seed)
     # Load data
@@ -38,6 +41,9 @@ def cross_validatation(
     diseased_arr = np.array(data['diseased'].astype(int).tolist())
     data.drop(columns=['participant', 'diseased'], inplace=True)
     data_matrix_all = data.to_numpy()
+    if z_score_norm:
+        scaler = StandardScaler()
+        data_matrix_all = scaler.fit_transform(data_matrix_all)
     n_biomarkers = data_matrix_all.shape[1]
     logging.info(f"Number of biomarkers: {n_biomarkers}")
     cvic_scores = np.zeros(max_n_subtypes)

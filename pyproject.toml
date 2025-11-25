@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bebms"
-version = "0.4.3"
+version = "0.4.5"
 description = "Bayesian Event-Based Model for Disease Subtype and Stage Inference"
 readme = "README.md"
 authors = [
