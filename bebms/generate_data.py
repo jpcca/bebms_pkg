@@ -733,18 +733,14 @@ def generate(
                         dff.sort_values(by='participant', inplace=True)
 
                     # assign NEW consecutive participant ids
-                    # Get unique participants in correct stable order
                     old_unique = pd.unique(df['participant'])
-                    new_ids = np.arange(new_participant_start, new_participant_start + len(dff))
-                    old_to_new = dict(zip(old_unique, new_ids))
-                    dff['participant'] = dff['participant'].map(old_to_new)
-
                     # --- Assign stage + subtype correctly (works for both formats!) ---
                     stage_map = dict(zip(df['participant'].unique(), subtype_dict[filename]['true_stages']))
-                    dff['stage_assignments'] = dff['participant'].map(stage_map)
-                    # previously, i had this, but not working for long format
-                    # dff['stage_assignments'] = subtype_dict[filename]['true_stages']
+                    dff['stage_assignments'] = dff['participant'].map(stage_map)  # ← 用 OLD IDs 去 map OLD IDs ✓
                     dff['subtype_assignments'] = subtype_idx
+                    new_ids = np.arange(new_participant_start, new_participant_start + len(dff))
+                    old_to_new = dict(zip(old_unique, new_ids))
+                    dff['participant'] = dff['participant'].map(old_to_new)  # ← 然后转换成 NEW IDs ✓
 
                     # append to FULL_DF 
                     FULL_DF.append(dff)

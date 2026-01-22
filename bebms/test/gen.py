@@ -39,8 +39,8 @@ if __name__ == '__main__':
 
     OUTPUT_DIR = os.path.join(cwd, "my_data")
     # # Get path to default parameters
-    # params_file = get_params_path()
-    params_file = f'{cwd}/high_dimensional.json'
+    params_file = get_params_path()
+    # params_file = f'{cwd}/high_dimensional.json'
 
     # USE ADNI PARAMS OBTAINED FROM UCL GMM, and ordering obtained from PYSUSTAIN
     # params_file = f'{cwd}/ADNI_PYSUSTAIN.json'

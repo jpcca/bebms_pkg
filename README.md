@@ -43,6 +43,14 @@ The parameters are pre-set and can be found at [`bebms/data/params.json`](bebms/
 
 You can also change parameters in `config.toml` to adjust what data to generate.
 
+### How to understand TURE_ORDERINGS
+
+You'll see "TURE_ORDERINGS" in `true_order_and_stages.json`. How to understand it?
+
+First you get a sorted list of all biomarker names (ascending), call it `list1`. Then you have several true orderings, and we call each ordering `list2`. 
+
+list2[i] = the position (0-indexed) of biomarker list1[i] in the true ordering. 
+
 ### Details
 
 You can look into the [`gen.py`](bebms/test/gen.py) and [`generate_data.py`](bebms/generate_data.py) for more details. By default, `keep_all_cols = False` and the result is the data in wide format. 
@@ -251,3 +259,36 @@ The default of the functions of `run_bebms` and `cross_validation` is `z_score_n
     - Allowed `keep_all_cols=True` when generating synthetic data. Will use the long format in that situation. 
 - 2025-11-07 (V 0.4.5)
     - Now `z_score_norm` is added in `run.py` and `cross_validation.py` to allow users to do z score normalization for the data matrix.
+- 2026-01-21 (V 0.4.8)
+    - Now include `pyyaml` in dependences. 
+    - Fix the bug of stage assignemnt 
+  - Before
+  
+```py
+  # assign NEW consecutive participant ids
+old_unique = pd.unique(df['participant'])
+new_ids = np.arange(new_participant_start, new_participant_start + len(dff))
+old_to_new = dict(zip(old_unique, new_ids))
+dff['participant'] = dff['participant'].map(old_to_new)  # ← 先转换成 NEW IDs
+
+# --- Assign stage + subtype correctly (works for both formats!) ---
+stage_map = dict(zip(df['participant'].unique(), subtype_dict[filename]['true_stages']))
+dff['stage_assignments'] = dff['participant'].map(stage_map)  # ← 用 NEW IDs 去 map OLD IDs！❌
+dff['subtype_assignments'] = subtype_idx
+```
+
+This will cause some NaN in stage assignments in `true_order_and_stages.json`. But this won't change our results because we do not use stage assignments in our training or testing. 
+
+Changed to correct:
+
+```py
+# assign NEW consecutive participant ids
+old_unique = pd.unique(df['participant'])
+# --- Assign stage + subtype correctly (works for both formats!) ---
+stage_map = dict(zip(df['participant'].unique(), subtype_dict[filename]['true_stages']))
+dff['stage_assignments'] = dff['participant'].map(stage_map)  # ← 用 OLD IDs 去 map OLD IDs ✓
+dff['subtype_assignments'] = subtype_idx
+new_ids = np.arange(new_participant_start, new_participant_start + len(dff))
+old_to_new = dict(zip(old_unique, new_ids))
+dff['participant'] = dff['participant'].map(old_to_new)  # ← 然后转换成 NEW IDs ✓
+```
