@@ -6,11 +6,11 @@ MY_FOLDER: 'bebms/test/algo_results/results'
 TEMPERATURE_LO: 0.01
 TEMPERATURE_HI: 0.35
 N_SUB_LO: 1
-N_SUB_HI: 5
+N_SUB_HI: 1
 GEN_DIRICHLET_PRIORS: [0.1, 2, 5, 20]
 SUBTYPE_LENGTH_LO: 5 # the lowest possible number of diseased participant any subtype can have 
 EXPERIMENT_NAMES:
-  - sn_kjOrdinalDM_xnjNormal                  # Experiment 1: Ordinal k_j, Dirichlet-Multinomial stage prior, Normal biomarker distributions
+  # - sn_kjOrdinalDM_xnjNormal                  # Experiment 1: Ordinal k_j, Dirichlet-Multinomial stage prior, Normal biomarker distributions
   # - sn_kjOrdinalDM_xnjNonNormal               # Experiment 2: Ordinal k_j, Dirichlet-Multinomial stage prior, Non-Normal biomarker distributions
   # - sn_kjOrdinalUniform_xnjNormal             # Experiment 3: Ordinal k_j, Uniform stage prior, Normal biomarker distributions
   # - sn_kjOrdinalUniform_xnjNonNormal          # Experiment 4: Ordinal k_j, Uniform stage prior, Non-Normal biomarker distributions
@@ -20,7 +20,7 @@ EXPERIMENT_NAMES:
   # - sn_kjContinuousUniform_xnjNonNormal       # Experiment 8: Continuous k_j (Uniform distribution), Non-Normal biomarker distributions
   # - sn_kjContinuousBeta_xnjNormal             # Experiment 9: Continuous k_j (Beta distribution), Normal biomarker distributions
   # - sn_kjContinuousBeta_xnjNonNormal          # Experiment 10: Continuous k_j (Beta distribution), Non-Normal biomarker distributions
-  # - xiNearNormal_kjContinuousBeta_sigmoid     # Experiment 11: Continuous xi (near-normal), Continuous k_j (Beta), sigmoid measurement model
+  - xiNearNormal_kjContinuousBeta_sigmoid     # Experiment 11: Continuous xi (near-normal), Continuous k_j (Beta), sigmoid measurement model
   # - xiNearNormal_kjContinuousBeta_xnjNormal   # Experiment 12: Continuous xi (near-normal), Continuous k_j (Beta), EBM framework with Normal biomarker distributions
 
   

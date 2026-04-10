@@ -37,7 +37,7 @@ def run_bebms(
     prior_v: float = 1.0,
     seed: int = 123,
     save_results:bool=True,
-    theta_phi_matrix: np.ndarray=None,
+    theta_phi_matrix: np.ndarray=None, # we give the true theta_phi_matrix to the model
     obtain_results:bool=True, # if not, just return the max_ll and the empty results
     with_labels:bool=True, # whether assuming knowelege of the true label or not
 ) -> Dict[str, Union[str, int, float, Dict, List]]:
@@ -137,8 +137,7 @@ def run_bebms(
         all_orders, all_loglikes, best_order_matrix, max_log_likelihood, best_theta_phi, best_stage_post, best_subtype_post, _, _ = metropolis_hastings( 
             data_matrix=data_matrix, diseased_arr=diseased_arr, n_subtypes=n_subtypes,
             iterations = n_iter, n_shuffle = n_shuffle, n_subtype_shuffle = n_subtype_shuffle, prior_n=prior_n, prior_v=prior_v, rng=rng,
-            burn_in=burn_in, with_labels=with_labels
-            # theta_phi=theta_phi_matrix
+            burn_in=burn_in, with_labels=with_labels, theta_phi=theta_phi_matrix
         )
    
     except Exception as e:

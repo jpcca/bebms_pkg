@@ -402,13 +402,19 @@ def generate_data(
         
         # Generate continuous event times for biomarkers
         if experiment_name.startswith('xi'):
-            # Use beta distribution for near-normal event times
-            event_time_raw = rng.beta(
-                a=beta_params['near_normal']['alpha'], 
-                b=beta_params['near_normal']['beta'], 
-                size=max_stage) + epsilon
-            
-            event_times = event_time_raw * max_stage
+            if fixed_biomarker_order:
+                # Keep the ordering from params_use - use sorted continuous values
+                event_time_raw = np.sort(rng.beta(
+                    a=beta_params['near_normal']['alpha'], 
+                    b=beta_params['near_normal']['beta'], 
+                    size=max_stage))
+            else:
+                # Random event times (original behavior)
+                event_time_raw = rng.beta(
+                    a=beta_params['near_normal']['alpha'], 
+                    b=beta_params['near_normal']['beta'], 
+                    size=max_stage)
+            event_times = event_time_raw * max_stage + epsilon
         
         # Assign event times to biomarkers
         event_time_dict = dict(zip(shuffled_biomarkers, event_times))

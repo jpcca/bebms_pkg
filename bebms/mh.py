@@ -1,6 +1,6 @@
 import numpy as np
 import bebms.utils as utils 
-from typing import Tuple
+from typing import Tuple, Optional
 import logging
  
 def metropolis_hastings(
@@ -13,9 +13,9 @@ def metropolis_hastings(
         prior_n: float,
         prior_v: float,
         burn_in:int,
-        # theta_phi:np.ndarray,
         rng: np.random.Generator,
         with_labels:bool,
+        theta_phi: Optional[np.ndarray] = None, # we give the actual theta_phi to the model so it does not have to guess
         # shared_theta_phi:bool=True,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Implement metroplis hastings MCMC algorithm
@@ -49,8 +49,11 @@ def metropolis_hastings(
     
     # if theta_phi is None:
     # N * 4 matrix, cols: theta_mean, theta_std, phi_mean, phi_std
-    theta_phi_default = utils.get_initial_theta_phi_estimates(
-        data_matrix, non_diseased_ids, diseased_ids, prior_n, prior_v, rng=rng)
+    if theta_phi is not None:
+        theta_phi_default = theta_phi.copy()
+    else:
+        theta_phi_default = utils.get_initial_theta_phi_estimates(
+            data_matrix, non_diseased_ids, diseased_ids, prior_n, prior_v, rng=rng)
     # if shared_theta_phi:
         # shared across all subtypes
     current_theta_phi = theta_phi_default.copy()

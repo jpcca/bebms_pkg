@@ -292,3 +292,12 @@ new_ids = np.arange(new_participant_start, new_participant_start + len(dff))
 old_to_new = dict(zip(old_unique, new_ids))
 dff['participant'] = dff['participant'].map(old_to_new)  # ← 然后转换成 NEW IDs ✓
 ```
+
+
+- 2026-01-27 (V 0.5.0)
+  - Added the default theta phi to `mh.py`. It was already in `run.py`. 
+  
+- 2026-01-31 (V 0.6.0)
+  
+### Fixed
+- **Bug fix in `xi` experiments for subtype data generation**: Event times generated from Beta distribution are now sorted before assignment to biomarkers. Previously, when `fixed_biomarker_order=True`, random (unsorted) Beta-sampled event times were assigned to biomarkers, causing the true ordering to be determined by these random values rather than the intended subtype ranking. This affected experiments `xiNearNormal_kjContinuousBeta_sigmoid` and `xiNearNormal_kjContinuousBeta_xnjNormal`.

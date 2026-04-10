@@ -20,16 +20,16 @@ with open(f"{cwd}/bebms/test/true_order_and_stages.json", "r") as f:
 
 rng = np.random.default_rng(42)
 
-# params_file = get_params_path()
+params_file = get_params_path()
 
-# with open(params_file) as f:
-#     params = json.load(f)
+with open(params_file) as f:
+    params = json.load(f)
 
-# params_matrix = np.zeros((len(params), 4))
-# biomarker_names = sorted(params.keys())
-# for i, bm in enumerate(biomarker_names):
-#     bm_data = params[bm]
-#     params_matrix[i, :] = bm_data['theta_mean'], bm_data['theta_std'], bm_data['phi_mean'], bm_data['phi_std']
+params_matrix = np.zeros((len(params), 4))
+biomarker_names = sorted(params.keys())
+for i, bm in enumerate(biomarker_names):
+    bm_data = params[bm]
+    params_matrix[i, :] = bm_data['theta_mean'], bm_data['theta_std'], bm_data['phi_mean'], bm_data['phi_std']
 
 for data_file in data_files[:10]:
     random_state = rng.integers(0, 2**32 - 1)
@@ -54,6 +54,7 @@ for data_file in data_files[:10]:
         seed = random_state,
         save_results=True,
         with_labels=False,
-        save_plots=True
+        save_plots=True,
+        theta_phi_matrix=params_matrix
     )
     
