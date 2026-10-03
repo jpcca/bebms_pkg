@@ -5,8 +5,8 @@ SUSTAIN_FOLDER: 'bebms/test/sustain_results/results'
 MY_FOLDER: 'bebms/test/algo_results/results'
 TEMPERATURE_LO: 0.01
 TEMPERATURE_HI: 0.35
-N_SUB_LO: 1
-N_SUB_HI: 1
+N_SUB_LO: 2
+N_SUB_HI: 4
 GEN_DIRICHLET_PRIORS: [0.1, 2, 5, 20]
 SUBTYPE_LENGTH_LO: 5 # the lowest possible number of diseased participant any subtype can have 
 EXPERIMENT_NAMES:

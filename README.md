@@ -301,3 +301,12 @@ dff['participant'] = dff['participant'].map(old_to_new)  # ← 然后转换成 N
   
 ### Fixed
 - **Bug fix in `xi` experiments for subtype data generation**: Event times generated from Beta distribution are now sorted before assignment to biomarkers. Previously, when `fixed_biomarker_order=True`, random (unsorted) Beta-sampled event times were assigned to biomarkers, causing the true ordering to be determined by these random values rather than the intended subtype ranking. This affected experiments `xiNearNormal_kjContinuousBeta_sigmoid` and `xiNearNormal_kjContinuousBeta_xnjNormal`.
+
+- 2026-04-21 (V 0.6.1)
+
+Edited `utils.get_final_metrics`, so that if there is only one subtype, then there is no need to calculate ARI because it will be 1.0, but we want to report it as NaN to indicate that it is not applicable.
+
+- 2026-04-29 (V 0.6.2)
+
+Added optional `true_stage_assignments` parameter to `run_bebms`. When provided, computes and reports `stage_mae` (mean absolute error between predicted and true stages) across all participants — including healthy controls, since the model does not automatically assign stage 0 to them.
+

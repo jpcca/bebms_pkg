@@ -38,6 +38,7 @@ for data_file in data_files[:10]:
     n_subtypes = metadata['N_SUB']
     true_order_matrix = metadata['TRUE_ORDERINGS']
     true_subtype_assignments = metadata['TRUE_SUBTYPE_ASSIGNMENTS']
+    true_stage_assignments = metadata['TRUE_STAGE_ASSIGNMENTS']
 
     run_bebms(
         data_file= os.path.join(data_dir, data_file),
@@ -45,6 +46,7 @@ for data_file in data_files[:10]:
         n_subtypes=n_subtypes,
         true_order_matrix=true_order_matrix,
         true_subtype_assignments=true_subtype_assignments,
+        true_stage_assignments=true_stage_assignments,
         output_dir=OUTPUT_DIR,
         n_iter=3000,
         n_shuffle=2,

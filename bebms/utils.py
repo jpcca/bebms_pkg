@@ -1081,7 +1081,12 @@ def get_final_metrics(
     tau = dist[estimated_indices, true_indices].mean()
     ml_subtypes = ml_subtype[diseased_mask]
     true_subtype_assignments = true_subtype_assignments[diseased_mask]
-    subtype_assignment_accuracy = adjusted_rand_score(true_subtype_assignments, ml_subtypes)
+
+    # if there is only one subtype, then there is no need to calculate ARI because it will be 1.0, but we want to report it as NaN to indicate that it is not applicable.
+    if len(np.unique(true_subtype_assignments)) > 1:
+        subtype_assignment_accuracy = adjusted_rand_score(true_subtype_assignments, ml_subtypes)
+    else:
+        subtype_assignment_accuracy = np.nan
     mean_stage_healthy = np.mean(ml_stage[healthy_mask])
     return tau, subtype_assignment_accuracy, mean_stage_healthy
 

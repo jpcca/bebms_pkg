@@ -40,6 +40,7 @@ def run_bebms(
     theta_phi_matrix: np.ndarray=None, # we give the true theta_phi_matrix to the model
     obtain_results:bool=True, # if not, just return the max_ll and the empty results
     with_labels:bool=True, # whether assuming knowelege of the true label or not
+    true_stage_assignments: Optional[np.ndarray] = None,
 ) -> Dict[str, Union[str, int, float, Dict, List]]:
     """
     Run the metropolis hastings algorithm and save results 
@@ -182,8 +183,9 @@ def run_bebms(
  
     if obtain_results:
 
-        tau = None 
+        tau = None
         subtype_acc = None
+        stage_mae = None
 
         if with_labels:
             stage_post, subtype_post = utils.new_posteriors_with_em(
@@ -211,7 +213,7 @@ def run_bebms(
 
         mean_stage_healthy = np.mean(ml_stage[healthy_mask])
         
-        if true_order_matrix is not None and true_subtype_assignments is not None:     
+        if true_order_matrix is not None and true_subtype_assignments is not None:
             tau, subtype_acc, _ = utils.get_final_metrics(
                 true_order_matrix=np.array(true_order_matrix),
                 best_order_matrix=best_order_matrix,
@@ -220,6 +222,9 @@ def run_bebms(
                 ml_stage=ml_stage,
                 diseased_mask=diseased_mask
             )
+
+        if true_stage_assignments is not None:
+            stage_mae = float(np.mean(np.abs(ml_stage - np.array(true_stage_assignments))))
 
         end_time = time.time()
         results = {
@@ -231,6 +236,7 @@ def run_bebms(
             "max_log_likelihood": max_log_likelihood,
             "kendalls_tau": tau,
             'subtype_acc': subtype_acc,
+            'stage_mae': stage_mae,
             'n_subtypes': n_subtypes,
             'mean_stage_healthy': mean_stage_healthy,
             'ml_subtype': ml_subtype
